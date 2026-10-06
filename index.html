@@ -1,1 +1,98 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Generador de Recibos - ARQUIPOR</title>
+    <link rel="stylesheet" href="styles.css">
+    <!-- Librería para Firmas -->
+    <script src="https://unpkg.com/smooth-signature/dist/index.umd.min.js"></script>
+    <!-- Librería para PDF -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+</head>
+<body>
 
+    <!-- Panel de Control (No se imprime en el PDF) -->
+    <div class="controls no-print">
+        <h3>Panel de Control</h3>
+        <div class="control-group">
+            <label>Personas Frecuentes:</label>
+            <select id="personas-frecuentes">
+                <option value="">-- Seleccionar --</option>
+            </select>
+            <button onclick="guardarPersonaFrecuente()">Guardar Persona Actual</button>
+        </div>
+        <div class="control-group">
+            <button onclick="guardarBorrador()" class="btn-draft">Guardar Borrador</button>
+            <button onclick="cargarBorrador()" class="btn-draft">Cargar Borrador</button>
+            <button onclick="limpiarFormulario()" class="btn-clear">Limpiar Formulario</button>
+            <button onclick="descargarPDF()" class="btn-pdf">Generar PDF (Guardar)</button>
+        </div>
+    </div>
+
+    <!-- Contenedor del Recibo (Esto es lo que se convierte a PDF) -->
+    <div id="receipt-container" class="receipt-container">
+        <!-- Encabezado -->
+        <div class="header">
+            <div class="header-left">
+                <h1>ARQUIPOR <span class="subtitle">EL SALVADOR</span></h1>
+                <p class="nrc">NRC: 0614-140224-112-2</p>
+            </div>
+            <div class="header-right">
+                <div class="receipt-number-box">
+                    <span class="rn-label">RECIBO No.</span>
+                    <span class="rn-value" id="receipt-number-value">47</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Banner Azul -->
+        <div class="banner">
+            RECIBO DE GASTOS
+        </div>
+
+        <!-- Tabla de Datos -->
+        <table class="receipt-table">
+            <tr>
+                <td class="label-cell">Fecha:</td>
+                <td class="input-cell"><input type="date" id="fecha"></td>
+            </tr>
+            <tr>
+                <td class="label-cell">Nombre completo:</td>
+                <td class="input-cell"><input type="text" id="nombre" placeholder="Nombre de la persona"></td>
+            </tr>
+            <tr>
+                <td class="label-cell">No. de DUI:</td>
+                <td class="input-cell"><input type="text" id="dui" placeholder="00000000-0"></td>
+            </tr>
+            <tr>
+                <td class="label-cell">Concepto del gasto:</td>
+                <td class="input-cell"><textarea id="concepto" rows="3" placeholder="Descripción del gasto"></textarea></td>
+            </tr>
+            <tr>
+                <td class="label-cell">Monto del gasto (US$):</td>
+                <td class="input-cell"><input type="number" id="monto" step="0.01" placeholder="0.00"></td>
+            </tr>
+        </table>
+
+        <!-- Firmas -->
+        <div class="signatures-container">
+            <div class="signature-block">
+                <canvas id="signature-receiver" width="300" height="100"></canvas>
+                <div class="signature-line"></div>
+                <p>Firma de quien recibe</p>
+                <button class="no-print clear-sig" onclick="clearReceiverSignature()">Borrar Firma</button>
+            </div>
+            <div class="signature-block">
+                <!-- Aquí se cargará la firma por defecto de quien paga -->
+                <img id="signature-payer-img" src="assets/firma-paga.png" alt="Firma de quien paga" style="display:none; max-width: 300px; max-height: 100px; object-fit: contain;">
+                <canvas id="signature-payer" width="300" height="100" style="display:none;"></canvas>
+                <div class="signature-line"></div>
+                <p>Firma de quien paga</p>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
