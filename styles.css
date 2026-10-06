@@ -1,1 +1,185 @@
+body {
+    font-family: Arial, sans-serif;
+    background-color: #f4f4f9;
+    margin: 0;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
 
+/* Panel de Control */
+.controls {
+    background: white;
+    padding: 20px;
+    border-radius: 8px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    margin-bottom: 20px;
+    width: 800px;
+    max-width: 100%;
+}
+.control-group {
+    margin-bottom: 15px;
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+button {
+    padding: 8px 15px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: bold;
+    color: white;
+}
+.btn-draft { background-color: #f0ad4e; }
+.btn-clear { background-color: #d9534f; }
+.btn-pdf { background-color: #1f3a6d; }
+.clear-sig { background-color: #6c757d; font-size: 12px; padding: 4px 8px; margin-top: 5px; }
+
+/* Contenedor del Recibo */
+.receipt-container {
+    background: white;
+    width: 800px;
+    max-width: 100%;
+    padding: 40px;
+    box-sizing: border-box;
+    box-shadow: 0 0 15px rgba(0,0,0,0.1);
+}
+
+/* Encabezado */
+.header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 20px;
+}
+.header-left h1 {
+    margin: 0;
+    color: #1f3a6d;
+    font-size: 24px;
+    font-weight: 900;
+}
+.header-left .subtitle {
+    font-size: 16px;
+    font-weight: bold;
+}
+.header-left .nrc {
+    margin: 5px 0 0 0;
+    font-size: 12px;
+    color: #333;
+}
+.header-right {
+    text-align: right;
+}
+.receipt-number-box {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    border-bottom: 2px solid #1f3a6d;
+    padding-bottom: 5px;
+}
+.rn-label {
+    font-weight: bold;
+    color: #1f3a6d;
+    font-size: 14px;
+}
+.rn-value {
+    font-size: 20px;
+    font-weight: bold;
+    color: #1f3a6d;
+}
+
+/* Banner Azul */
+.banner {
+    background-color: #1f3a6d;
+    color: white;
+    text-align: center;
+    font-weight: bold;
+    padding: 10px;
+    font-size: 18px;
+    margin-bottom: 20px;
+    letter-spacing: 1px;
+}
+
+/* Tabla */
+.receipt-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 40px;
+    border: 1px solid #ccc;
+}
+.receipt-table td {
+    border: 1px solid #ccc;
+    padding: 10px;
+    vertical-align: middle;
+}
+.label-cell {
+    background-color: #d9e2f3; /* Azul claro de la imagen */
+    font-weight: bold;
+    color: #1f3a6d;
+    width: 30%;
+}
+.input-cell {
+    background-color: white;
+}
+.input-cell input, .input-cell textarea {
+    width: 100%;
+    border: none;
+    outline: none;
+    font-family: Arial, sans-serif;
+    font-size: 14px;
+    background: transparent;
+}
+
+/* Firmas */
+.signatures-container {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 60px;
+    gap: 40px;
+}
+.signature-block {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    position: relative;
+}
+.signature-line {
+    width: 100%;
+    border-top: 1px solid #000;
+    margin-top: -2px; /* Para que la línea quede pegada al canvas */
+    margin-bottom: 10px;
+}
+.signature-block p {
+    margin: 0;
+    font-size: 14px;
+    font-weight: bold;
+}
+canvas {
+    border: 1px dashed #ccc; /* Guía visual, puedes quitarlo si quieres */
+    cursor: crosshair;
+    background-color: #fafafa;
+    z-index: 2;
+}
+
+/* Ocultar elementos al imprimir o generar PDF */
+@media print {
+    .no-print, .controls, .clear-sig {
+        display: none !important;
+    }
+    body {
+        background: white;
+        padding: 0;
+    }
+    .receipt-container {
+        box-shadow: none;
+        padding: 0;
+    }
+    canvas {
+        border: none;
+        background: transparent;
+    }
+}
