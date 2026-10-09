@@ -212,12 +212,11 @@ window.descargarPDF = async function() {
 // 7. MÓDULO DE FACTURAS (SIMULADOR)
 // ==========================================
 
-// --- 7.1 Productos (Solo Nombres, ordenados alfabéticamente y con búsqueda) ---
+// --- 7.1 Productos ---
 async function cargarProductos() {
     const q = query(collection(db, "productos"), where("userId", "==", currentUser.uid));
     const snap = await getDocs(q);
     productosGlobal = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-    // Ordenar alfabéticamente por nombre
     productosGlobal.sort((a, b) => a.nombre.localeCompare(b.nombre));
     actualizarSelectProductos();
     renderizarTablaProductos();
@@ -255,6 +254,28 @@ function renderizarTablaProductos() {
 window.abrirModalProductos = () => { document.getElementById('modal-productos').style.display = 'block'; cargarProductos(); };
 window.cerrarModalProductos = () => document.getElementById('modal-productos').style.display = 'none';
 
+// 🔥 NUEVA FUNCIÓN: Elimina todos los productos duplicados existentes
+window.limpiarDuplicados = async function() {
+    if (!confirm("¿Eliminar todos los productos duplicados? Se conservará el primer registro de cada nombre.")) return;
+    
+    // Agrupar por nombre normalizado (minúsculas, sin espacios extremos)
+    const vistos = new Set();
+    let eliminados = 0;
+    
+    for (const p of productosGlobal) {
+        const clave = p.nombre.trim().toLowerCase();
+        if (vistos.has(clave)) {
+            await deleteDoc(doc(db, "productos", p.id));
+            eliminados++;
+        } else {
+            vistos.add(clave);
+        }
+    }
+    
+    alert(`Se eliminaron ${eliminados} productos duplicados.`);
+    await cargarProductos();
+};
+
 window.importarExcel = function() {
     const fileInput = document.getElementById('excel-file');
     const file = fileInput.files[0];
@@ -267,15 +288,32 @@ window.importarExcel = function() {
         const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
         const jsonData = XLSX.utils.sheet_to_json(firstSheet);
 
+        // Nombres ya existentes en la BD (normalizados)
+        const existentes = new Set(productosGlobal.map(p => p.nombre.trim().toLowerCase()));
+        // Nombres ya procesados dentro de este mismo Excel para evitar duplicados internos
+        const procesadosEnEsteExcel = new Set();
+
         let importados = 0;
+        let omitidos = 0;
+
         for (const row of jsonData) {
-            const nombre = row.Nombre || row.nombre || row.NOMBRE || row.Producto || row.producto || row.PRODUCTO;
-            if (nombre) {
+            const nombreRaw = row.Nombre || row.nombre || row.NOMBRE || row.Producto || row.producto || row.PRODUCTO;
+            if (nombreRaw) {
+                const nombre = String(nombreRaw).trim();
+                const clave = nombre.toLowerCase();
+
+                // Omitir si ya existe en la BD o si ya apareció en este mismo Excel
+                if (existentes.has(clave) || procesadosEnEsteExcel.has(clave)) {
+                    omitidos++;
+                    continue;
+                }
+
                 await addDoc(collection(db, "productos"), { userId: currentUser.uid, nombre });
+                procesadosEnEsteExcel.add(clave);
                 importados++;
             }
         }
-        alert(`Se importaron ${importados} productos.`);
+        alert(`Se importaron ${importados} productos.\n${omitidos} omitidos por duplicados.`);
         fileInput.value = '';
         await cargarProductos();
     };
@@ -285,6 +323,12 @@ window.importarExcel = function() {
 window.agregarProductoManual = async function() {
     const nombre = document.getElementById('prod-nombre').value.trim();
     if (!nombre) return alert("Ingrese el nombre del producto.");
+    
+    // 🔥 Validar que no exista ya (sin importar mayúsculas/minúsculas)
+    const existe = productosGlobal.some(p => p.nombre.trim().toLowerCase() === nombre.toLowerCase());
+    if (existe) {
+        return alert("Este producto ya existe en la lista. No se permiten duplicados.");
+    }
     
     await addDoc(collection(db, "productos"), { userId: currentUser.uid, nombre });
     document.getElementById('prod-nombre').value = '';
@@ -317,7 +361,6 @@ window.nuevaFactura = function() {
     document.getElementById('modo-edicion-badge').style.display = 'none';
     document.getElementById('formulario-factura').style.display = 'block';
     document.getElementById('lista-facturas-container').style.display = 'none';
-    document.getElementById('factura-correlativo').textContent = '';
     toggleRetencion();
     toggleCamposDeposito();
     renderizarItemsFactura();
@@ -338,7 +381,6 @@ function toggleRetencion() {
     calcularTotalesFactura();
 }
 
-// Mostrar/ocultar campos de depósito según método de abono
 window.toggleCamposDeposito = function() {
     const metodo = document.getElementById('abono-metodo').value;
     const camposDeposito = document.getElementById('campos-deposito');
@@ -353,10 +395,13 @@ window.toggleCamposDeposito = function() {
 
 window.agregarItemFactura = function() {
     const prodId = document.getElementById('select-producto').value;
-    const cantidad = parseInt(document.getElementById('cantidad-producto').value);
+    // 🔥 AHORA: parseFloat en vez de parseInt para permitir decimales
+    const cantidad = parseFloat(document.getElementById('cantidad-producto').value);
     const precioConIva = parseFloat(document.getElementById('precio-con-iva-item').value);
 
-    if (!prodId || cantidad < 1 || isNaN(precioConIva)) return alert("Seleccione producto, cantidad y escriba el precio con IVA.");
+    if (!prodId || isNaN(cantidad) || cantidad <= 0 || isNaN(precioConIva) || precioConIva <= 0) {
+        return alert("Seleccione producto, cantidad válida (puede usar decimales) y escriba el precio con IVA.");
+    }
 
     const prod = productosGlobal.find(p => p.id === prodId);
     if (!prod) return;
@@ -376,7 +421,7 @@ window.agregarItemFactura = function() {
     document.getElementById('buscar-producto').value = '';
     document.getElementById('cantidad-producto').value = '1';
     document.getElementById('precio-con-iva-item').value = '';
-    actualizarSelectProductos(); // Resetear filtro
+    actualizarSelectProductos();
     renderizarItemsFactura();
 };
 
@@ -384,9 +429,11 @@ function renderizarItemsFactura() {
     const tbody = document.getElementById('cuerpo-items');
     tbody.innerHTML = '';
     itemsFactura.forEach((item, index) => {
+        // Formatear cantidad: si es entero mostrarlo sin decimales, si tiene decimales mostrarlos
+        const cantMostrar = Number.isInteger(item.cantidad) ? item.cantidad : item.cantidad.toFixed(2);
         tbody.innerHTML += `
             <tr>
-                <td>${item.cantidad}</td>
+                <td>${cantMostrar}</td>
                 <td>${item.nombre}</td>
                 <td>$${item.precioConIva.toFixed(2)}</td>
                 <td>$${item.precioSinIva.toFixed(2)}</td>
@@ -430,7 +477,6 @@ window.agregarAbono = function() {
 
     const abono = { metodo, fecha, monto };
 
-    // Si es Efectivo o Cheque, requerir datos del depósito
     if (metodo === 'Efectivo' || metodo === 'Cheque') {
         const fechaDeposito = document.getElementById('abono-fecha-deposito').value;
         const nombreDeposito = document.getElementById('abono-nombre-deposito').value.trim();
@@ -526,7 +572,6 @@ window.guardarFactura = async function() {
         await updateDoc(doc(db, "facturas", facturaEditandoId), facturaData);
         alert("Simulación actualizada.");
     } else {
-        // Aún mantenemos el correlativo interno para referencia
         const docRef = doc(db, "configuracion", "correlativoFactura");
         const docSnap = await getDoc(docRef);
         const correlativo = docSnap.data().valor;
