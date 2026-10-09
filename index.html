@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Sistema ARQUIPOR - Recibos y Facturas</title>
     <link rel="stylesheet" href="styles.css">
-    <!-- Librerías externas -->
     <script src="https://unpkg.com/smooth-signature/dist/index.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     <!-- SheetJS para importar Excel -->
@@ -194,7 +193,8 @@
                         <select id="select-producto">
                             <option value="">-- Seleccionar Producto --</option>
                         </select>
-                        <input type="number" id="cantidad-producto" value="1" min="1" style="width: 60px;">
+                        <input type="number" id="cantidad-producto" value="1" min="1" style="width: 70px;" placeholder="Cant.">
+                        <input type="number" id="precio-con-iva-item" placeholder="Precio c/IVA $" step="0.01" style="width: 130px;">
                         <button onclick="agregarItemFactura()" class="btn-draft">Agregar Item</button>
                     </div>
                     <table class="items-table" id="tabla-items">
@@ -202,7 +202,8 @@
                             <tr>
                                 <th>Cantidad</th>
                                 <th>Descripción</th>
-                                <th>Precio Unitario (sin IVA)</th>
+                                <th>Precio Unit. (con IVA)</th>
+                                <th>Precio Unit. (sin IVA)</th>
                                 <th>Total (sin IVA)</th>
                                 <th class="no-print">Acción</th>
                             </tr>
@@ -258,26 +259,25 @@
 
     <!-- MODAL DE PRODUCTOS -->
     <div id="modal-productos" class="modal">
-        <div class="modal-content" style="width: 80%; max-width: 800px;">
+        <div class="modal-content" style="width: 60%; max-width: 600px;">
             <span class="close" onclick="cerrarModalProductos()">&times;</span>
-            <h2>Gestión de Productos</h2>
+            <h2>Gestión de Productos (Solo Nombres)</h2>
             <div class="control-group">
                 <input type="file" id="excel-file" accept=".xlsx, .xls">
                 <button onclick="importarExcel()" class="btn-draft">Importar desde Excel</button>
             </div>
+            <p style="font-size:12px; color:#666;">* El Excel debe tener una columna llamada "Nombre" o "Producto".</p>
             <hr>
             <h3>Agregar Producto Manual</h3>
             <div class="control-group">
-                <input type="text" id="prod-codigo" placeholder="Código">
-                <input type="text" id="prod-nombre" placeholder="Nombre del producto">
-                <input type="number" id="prod-precio" placeholder="Precio con IVA $" step="0.01">
+                <input type="text" id="prod-nombre" placeholder="Nombre del producto" style="width: 70%;">
                 <button onclick="agregarProductoManual()" class="btn-pdf">Agregar</button>
             </div>
             <hr>
             <h3>Lista de Productos</h3>
             <table class="items-table" id="tabla-productos">
                 <thead>
-                    <tr><th>Código</th><th>Nombre</th><th>Precio (sin IVA)</th><th>IVA</th><th>Precio Final</th><th>Acción</th></tr>
+                    <tr><th>Nombre del Producto</th><th>Acción</th></tr>
                 </thead>
                 <tbody id="cuerpo-productos"></tbody>
             </table>
