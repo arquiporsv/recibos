@@ -90,7 +90,7 @@ async function inicializarApp() {
 }
 
 // ==========================================
-// 6. MÓDULO DE RECIBOS (Lógica Existente + Guardado PDF)
+// 6. MÓDULO DE RECIBOS
 // ==========================================
 async function cargarCorrelativo() {
     const docRef = doc(db, "configuracion", "correlativo");
@@ -191,19 +191,12 @@ window.descargarPDF = async function() {
     document.querySelectorAll('.clear-sig').forEach(b => b.style.display = 'none');
 
     try {
-        // Generar PDF
         const pdfWorker = html2pdf().set(opciones).from(elemento);
         const pdfDataUri = await pdfWorker.toPdf().get('pdf').then(pdf => pdf.output('datauristring'));
-        
-        // Descargar
         await pdfWorker.save();
 
-        // Guardar en Firestore como Base64
         await addDoc(collection(db, "recibos_pdfs"), {
-            userId: currentUser.uid,
-            correlativo: correlativo,
-            nombre: nombre,
-            monto: monto,
+            userId: currentUser.uid, correlativo: correlativo, nombre: nombre, monto: monto,
             fecha: document.getElementById('fecha').value || new Date().toISOString().split('T')[0],
             pdfBase64: pdfDataUri
         });
@@ -219,7 +212,7 @@ window.descargarPDF = async function() {
 // 7. MÓDULO DE FACTURAS (SIMULADOR)
 // ==========================================
 
-// --- 7.1 Productos ---
+// --- 7.1 Productos (Solo Nombres) ---
 async function cargarProductos() {
     const q = query(collection(db, "productos"), where("userId", "==", currentUser.uid));
     const snap = await getDocs(q);
@@ -232,7 +225,7 @@ function actualizarSelectProductos() {
     const select = document.getElementById('select-producto');
     select.innerHTML = '<option value="">-- Seleccionar Producto --</option>';
     productosGlobal.forEach(p => {
-        select.innerHTML += `<option value="${p.id}">${p.codigo} - ${p.nombre} ($${p.precioConIva.toFixed(2)})</option>`;
+        select.innerHTML += `<option value="${p.id}">${p.nombre}</option>`;
     });
 }
 
@@ -242,11 +235,7 @@ function renderizarTablaProductos() {
     productosGlobal.forEach(p => {
         tbody.innerHTML += `
             <tr>
-                <td>${p.codigo}</td>
                 <td>${p.nombre}</td>
-                <td>$${p.precioSinIva.toFixed(2)}</td>
-                <td>$${p.iva.toFixed(2)}</td>
-                <td>$${p.precioConIva.toFixed(2)}</td>
                 <td><button onclick="eliminarProducto('${p.id}')" class="btn-clear">Eliminar</button></td>
             </tr>`;
     });
@@ -269,17 +258,10 @@ window.importarExcel = function() {
 
         let importados = 0;
         for (const row of jsonData) {
-            // Asumimos columnas: Codigo, Nombre, Precio (con IVA)
-            const codigo = row.Codigo || row.codigo || row.CODIGO;
-            const nombre = row.Nombre || row.nombre || row.NOMBRE;
-            const precioConIva = parseFloat(row.Precio || row.precio || row.PRECIO);
-
-            if (codigo && nombre && !isNaN(precioConIva)) {
-                const precioSinIva = precioConIva / 1.13;
-                const iva = precioConIva - precioSinIva;
-                await addDoc(collection(db, "productos"), {
-                    userId: currentUser.uid, codigo, nombre, precioConIva, precioSinIva, iva
-                });
+            // Buscamos cualquier columna que se llame Nombre, nombre, Producto, etc.
+            const nombre = row.Nombre || row.nombre || row.NOMBRE || row.Producto || row.producto || row.PRODUCTO;
+            if (nombre) {
+                await addDoc(collection(db, "productos"), { userId: currentUser.uid, nombre });
                 importados++;
             }
         }
@@ -291,17 +273,11 @@ window.importarExcel = function() {
 };
 
 window.agregarProductoManual = async function() {
-    const codigo = document.getElementById('prod-codigo').value.trim();
     const nombre = document.getElementById('prod-nombre').value.trim();
-    const precioConIva = parseFloat(document.getElementById('prod-precio').value);
-
-    if (!codigo || !nombre || isNaN(precioConIva)) return alert("Complete todos los campos del producto.");
+    if (!nombre) return alert("Ingrese el nombre del producto.");
     
-    const precioSinIva = precioConIva / 1.13;
-    const iva = precioConIva - precioSinIva;
-
-    await addDoc(collection(db, "productos"), { userId: currentUser.uid, codigo, nombre, precioConIva, precioSinIva, iva });
-    document.getElementById('prod-codigo').value = ''; document.getElementById('prod-nombre').value = ''; document.getElementById('prod-precio').value = '';
+    await addDoc(collection(db, "productos"), { userId: currentUser.uid, nombre });
+    document.getElementById('prod-nombre').value = '';
     await cargarProductos();
 };
 
@@ -351,19 +327,28 @@ function toggleRetencion() {
 window.agregarItemFactura = function() {
     const prodId = document.getElementById('select-producto').value;
     const cantidad = parseInt(document.getElementById('cantidad-producto').value);
-    if (!prodId || cantidad < 1) return alert("Seleccione producto y cantidad válida.");
+    const precioConIva = parseFloat(document.getElementById('precio-con-iva-item').value);
+
+    if (!prodId || cantidad < 1 || isNaN(precioConIva)) return alert("Seleccione producto, cantidad y escriba el precio con IVA.");
 
     const prod = productosGlobal.find(p => p.id === prodId);
     if (!prod) return;
 
+    // Cálculo inverso para El Salvador (IVA 13%)
+    const precioSinIva = precioConIva / 1.13;
+    const totalSinIva = precioSinIva * cantidad;
+
     itemsFactura.push({
-        codigo: prod.codigo, nombre: prod.nombre,
-        precioSinIva: prod.precioSinIva, cantidad: cantidad,
-        totalSinIva: prod.precioSinIva * cantidad
+        nombre: prod.nombre,
+        cantidad: cantidad,
+        precioConIva: precioConIva,
+        precioSinIva: precioSinIva,
+        totalSinIva: totalSinIva
     });
 
     document.getElementById('select-producto').value = '';
     document.getElementById('cantidad-producto').value = '1';
+    document.getElementById('precio-con-iva-item').value = '';
     renderizarItemsFactura();
 };
 
@@ -375,6 +360,7 @@ function renderizarItemsFactura() {
             <tr>
                 <td>${item.cantidad}</td>
                 <td>${item.nombre}</td>
+                <td>$${item.precioConIva.toFixed(2)}</td>
                 <td>$${item.precioSinIva.toFixed(2)}</td>
                 <td>$${item.totalSinIva.toFixed(2)}</td>
                 <td class="no-print"><button onclick="eliminarItemFactura(${index})" class="btn-clear" style="padding:2px 6px; font-size:12px;">X</button></td>
@@ -403,7 +389,6 @@ function calcularTotalesFactura() {
     document.getElementById('factura-retencion').textContent = `$${retencion.toFixed(2)}`;
     document.getElementById('factura-total-pagar').textContent = `$${totalPagar.toFixed(2)}`;
 
-    // Recalcular abonos si el total cambia
     renderizarAbonosFactura();
 }
 
@@ -470,24 +455,20 @@ window.guardarFactura = async function() {
     const estado = saldo <= 0 ? 'Cancelada' : 'Pendiente';
 
     const facturaData = {
-        userId: currentUser.uid,
-        tipo, cliente,
+        userId: currentUser.uid, tipo, cliente,
         nit: document.getElementById('factura-cliente-nit').value,
         nrc: document.getElementById('factura-cliente-nrc').value,
         dui: document.getElementById('factura-cliente-dui').value,
         fecha: document.getElementById('factura-fecha').value,
-        items: itemsFactura,
-        abonos: abonosFactura,
+        items: itemsFactura, abonos: abonosFactura,
         subtotal, iva, totalConIva, retencion, totalPagar,
-        totalAbonado, saldo, estado,
-        fechaGuardado: new Date().toISOString()
+        totalAbonado, saldo, estado, fechaGuardado: new Date().toISOString()
     };
 
     if (facturaEditandoId) {
         await updateDoc(doc(db, "facturas", facturaEditandoId), facturaData);
         alert("Simulación actualizada.");
     } else {
-        // Obtener y incrementar correlativo
         const docRef = doc(db, "configuracion", "correlativoFactura");
         const docSnap = await getDoc(docRef);
         const correlativo = docSnap.data().valor;
@@ -556,7 +537,6 @@ window.verFactura = async function(id) {
     document.getElementById('modo-edicion-badge').className = 'badge badge-danger';
     document.getElementById('modo-edicion-badge').style.display = 'inline-block';
     
-    // Deshabilitar inputs
     document.querySelectorAll('#formulario-factura input, #formulario-factura select, #formulario-factura button:not(.btn-clear)').forEach(el => el.disabled = true);
 
     toggleRetencion();
@@ -587,7 +567,6 @@ window.editarFactura = async function(id) {
     document.getElementById('modo-edicion-badge').className = 'badge badge-warning';
     document.getElementById('modo-edicion-badge').style.display = 'inline-block';
     
-    // Habilitar inputs
     document.querySelectorAll('#formulario-factura input, #formulario-factura select, #formulario-factura button:not(.btn-clear)').forEach(el => el.disabled = false);
 
     toggleRetencion();
