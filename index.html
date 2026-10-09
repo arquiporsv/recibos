@@ -198,7 +198,8 @@
                         <select id="select-producto" style="flex: 2; min-width: 200px;">
                             <option value="">-- Seleccionar Producto --</option>
                         </select>
-                        <input type="number" id="cantidad-producto" value="1" min="1" style="width: 70px;" placeholder="Cant.">
+                        <!-- ⬇️ AQUI: ahora permite decimales ⬇️ -->
+                        <input type="number" id="cantidad-producto" value="1" min="0.01" step="0.01" style="width: 80px;" placeholder="Cant.">
                         <input type="number" id="precio-con-iva-item" placeholder="Precio c/IVA $" step="0.01" style="width: 130px;">
                         <button onclick="agregarItemFactura()" class="btn-draft">Agregar Item</button>
                     </div>
@@ -243,7 +244,6 @@
                         <input type="date" id="abono-fecha">
                         <input type="number" id="abono-monto" placeholder="Monto $" step="0.01">
                     </div>
-                    <!-- Campos condicionales para Efectivo/Cheque -->
                     <div class="control-group no-print" id="campos-deposito" style="display: none; background: #fff3cd; padding: 10px; border-radius: 6px;">
                         <label style="font-weight: bold; color: #856404;">💼 Datos del Depósito Bancario:</label>
                         <input type="date" id="abono-fecha-deposito" placeholder="Fecha de depósito">
@@ -279,8 +279,9 @@
             <div class="control-group">
                 <input type="file" id="excel-file" accept=".xlsx, .xls">
                 <button onclick="importarExcel()" class="btn-draft">Importar desde Excel</button>
+                <button onclick="limpiarDuplicados()" class="btn-clear">🧹 Eliminar Duplicados</button>
             </div>
-            <p style="font-size:12px; color:#666;">* El Excel debe tener una columna llamada "Nombre" o "Producto".</p>
+            <p style="font-size:12px; color:#666;">* El Excel debe tener una columna llamada "Nombre" o "Producto". Los duplicados se omitirán automáticamente.</p>
             <hr>
             <h3>Agregar Producto Manual</h3>
             <div class="control-group">
