@@ -3,12 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Generador de Recibos - ARQUIPOR</title>
+    <title>Sistema ARQUIPOR - Recibos y Facturas</title>
     <link rel="stylesheet" href="styles.css">
-    <!-- Librería para Firmas -->
+    <!-- Librerías externas -->
     <script src="https://unpkg.com/smooth-signature/dist/index.umd.min.js"></script>
-    <!-- Librería para PDF -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <!-- SheetJS para importar Excel -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 </head>
 <body>
 
@@ -16,7 +17,7 @@
     <div id="auth-container" class="auth-container">
         <div class="auth-box">
             <h2>Iniciar Sesión</h2>
-            <p>Accede para sincronizar tus recibos en la nube</p>
+            <p>Sistema de Recibos y Facturación</p>
             <input type="email" id="auth-email" placeholder="Correo electrónico">
             <input type="password" id="auth-password" placeholder="Contraseña">
             <button onclick="login()">Ingresar</button>
@@ -27,99 +28,271 @@
 
     <!-- APLICACIÓN PRINCIPAL -->
     <div id="app-container" style="display: none;">
-        <!-- Panel de Control (No se imprime) -->
-        <div class="controls no-print">
-            <div class="user-info">
-                <span>Usuario: <b id="user-email-display"></b></span>
-                <button onclick="logout()" class="btn-clear">Cerrar Sesión</button>
+        
+        <!-- BARRA DE NAVEGACIÓN -->
+        <div class="navbar no-print">
+            <div class="nav-brand">ARQUIPOR</div>
+            <div class="nav-tabs">
+                <button class="tab-btn active" onclick="switchTab('recibos')">Recibos</button>
+                <button class="tab-btn" onclick="switchTab('facturas')">Simulador de Facturas</button>
             </div>
-            <hr>
-            <div class="control-group">
-                <label>Personas Frecuentes:</label>
-                <select id="personas-frecuentes">
-                    <option value="">-- Seleccionar --</option>
-                </select>
-                <button onclick="guardarPersonaFrecuente()">Guardar Persona Actual</button>
-            </div>
-            <div class="control-group">
-                <button onclick="guardarBorrador()" class="btn-draft">Guardar Borrador en la Nube</button>
-                <button onclick="abrirModalBorradores()" class="btn-draft">Ver Borradores Guardados</button>
-                <button onclick="limpiarFormulario()" class="btn-clear">Limpiar Formulario</button>
-                <button onclick="descargarPDF()" class="btn-pdf">Generar PDF (Guardar)</button>
+            <div class="nav-user">
+                <span id="user-email-display"></span>
+                <button onclick="logout()" class="btn-clear">Salir</button>
             </div>
         </div>
 
-        <!-- CONTENEDOR DEL RECIBO (Esto se convierte a PDF) -->
-        <div id="receipt-container" class="receipt-container">
-            <!-- Encabezado -->
-            <div class="header">
-                <div class="header-left">
-                    <h1>ARQUIPOR <span class="subtitle">EL SALVADOR</span></h1>
-                    <p class="nrc">NRC: 0614-140224-112-2</p>
+        <!-- ========================================== -->
+        <!-- MÓDULO 1: RECIBOS                          -->
+        <!-- ========================================== -->
+        <div id="view-recibos" class="view-section">
+            <div class="controls no-print">
+                <div class="control-group">
+                    <label>Personas Frecuentes:</label>
+                    <select id="personas-frecuentes"><option value="">-- Seleccionar --</option></select>
+                    <button onclick="guardarPersonaFrecuente()">Guardar Persona</button>
                 </div>
-                <div class="header-right">
-                    <div class="receipt-number-box">
-                        <span class="rn-label">RECIBO No.</span>
-                        <span class="rn-value" id="receipt-number-value">47</span>
-                    </div>
+                <div class="control-group">
+                    <button onclick="guardarBorrador()" class="btn-draft">Guardar Borrador</button>
+                    <button onclick="abrirModalBorradores()" class="btn-draft">Ver Borradores</button>
+                    <button onclick="limpiarFormulario()" class="btn-clear">Limpiar</button>
+                    <button onclick="descargarPDF()" class="btn-pdf">Generar y Guardar PDF</button>
                 </div>
             </div>
 
-            <!-- Banner Azul -->
-            <div class="banner">RECIBO DE GASTOS</div>
-
-            <!-- Tabla de Datos -->
-            <table class="receipt-table">
-                <tr>
-                    <td class="label-cell">Fecha:</td>
-                    <td class="input-cell"><input type="date" id="fecha"></td>
-                </tr>
-                <tr>
-                    <td class="label-cell">Nombre completo:</td>
-                    <td class="input-cell"><input type="text" id="nombre" placeholder="Nombre de la persona"></td>
-                </tr>
-                <tr>
-                    <td class="label-cell">No. de DUI:</td>
-                    <td class="input-cell"><input type="text" id="dui" placeholder="00000000-0"></td>
-                </tr>
-                <tr>
-                    <td class="label-cell">Concepto del gasto:</td>
-                    <td class="input-cell"><textarea id="concepto" rows="3" placeholder="Descripción del gasto"></textarea></td>
-                </tr>
-                <tr>
-                    <td class="label-cell">Monto del gasto (US$):</td>
-                    <td class="input-cell"><input type="number" id="monto" step="0.01" placeholder="0.00"></td>
-                </tr>
-            </table>
-
-            <!-- Firmas -->
-            <div class="signatures-container">
-                <div class="signature-block">
-                    <canvas id="signature-receiver" width="300" height="100"></canvas>
-                    <div class="signature-line"></div>
-                    <p>Firma de quien recibe</p>
-                    <button class="no-print clear-sig" onclick="clearSignature('receiver')">Borrar Firma</button>
+            <div id="receipt-container" class="receipt-container">
+                <div class="header">
+                    <div class="header-left">
+                        <h1>ARQUIPOR <span class="subtitle">EL SALVADOR</span></h1>
+                        <p class="nrc">NRC: 0614-140224-112-2</p>
+                    </div>
+                    <div class="header-right">
+                        <div class="receipt-number-box">
+                            <span class="rn-label">RECIBO No.</span>
+                            <span class="rn-value" id="receipt-number-value">47</span>
+                        </div>
+                    </div>
                 </div>
-                <div class="signature-block">
-                    <canvas id="signature-payer" width="300" height="100"></canvas>
-                    <div class="signature-line"></div>
-                    <p>Firma de quien paga</p>
-                    <button class="no-print clear-sig" onclick="clearSignature('payer')">Borrar Firma</button>
+                <div class="banner">RECIBO DE GASTOS</div>
+                <table class="receipt-table">
+                    <tr><td class="label-cell">Fecha:</td><td class="input-cell"><input type="date" id="fecha"></td></tr>
+                    <tr><td class="label-cell">Nombre completo:</td><td class="input-cell"><input type="text" id="nombre" placeholder="Nombre de la persona"></td></tr>
+                    <tr><td class="label-cell">No. de DUI:</td><td class="input-cell"><input type="text" id="dui" placeholder="00000000-0"></td></tr>
+                    <tr><td class="label-cell">Concepto del gasto:</td><td class="input-cell"><textarea id="concepto" rows="3" placeholder="Descripción del gasto"></textarea></td></tr>
+                    <tr><td class="label-cell">Monto del gasto (US$):</td><td class="input-cell"><input type="number" id="monto" step="0.01" placeholder="0.00"></td></tr>
+                </table>
+                <div class="signatures-container">
+                    <div class="signature-block">
+                        <canvas id="signature-receiver" width="300" height="100"></canvas>
+                        <div class="signature-line"></div>
+                        <p>Firma de quien recibe</p>
+                        <button class="no-print clear-sig" onclick="clearSignature('receiver')">Borrar Firma</button>
+                    </div>
+                    <div class="signature-block">
+                        <canvas id="signature-payer" width="300" height="100"></canvas>
+                        <div class="signature-line"></div>
+                        <p>Firma de quien paga</p>
+                        <button class="no-print clear-sig" onclick="clearSignature('payer')">Borrar Firma</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ========================================== -->
+        <!-- MÓDULO 2: FACTURAS (SIMULADOR)             -->
+        <!-- ========================================== -->
+        <div id="view-facturas" class="view-section" style="display: none;">
+            <div class="controls no-print">
+                <div class="control-group">
+                    <button onclick="abrirModalProductos()" class="btn-draft">📦 Gestionar Productos</button>
+                    <button onclick="nuevaFactura()" class="btn-pdf">➕ Nueva Simulación</button>
+                    <button onclick="cargarListaFacturas()" class="btn-clear">🔄 Actualizar Lista</button>
+                </div>
+            </div>
+
+            <!-- Listado de Facturas -->
+            <div id="lista-facturas-container" class="receipt-container">
+                <h3>Historial de Simulaciones</h3>
+                <table class="receipt-table" id="tabla-facturas">
+                    <thead>
+                        <tr>
+                            <th>Correlativo</th>
+                            <th>Cliente</th>
+                            <th>Tipo</th>
+                            <th>Total a Pagar</th>
+                            <th>Abonado</th>
+                            <th>Saldo</th>
+                            <th>Estado</th>
+                            <th>Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody id="cuerpo-tabla-facturas"></tbody>
+                </table>
+            </div>
+
+            <!-- Formulario de Factura (Oculto por defecto) -->
+            <div id="formulario-factura" style="display: none;" class="receipt-container">
+                <div class="factura-header-actions no-print">
+                    <button onclick="cancelarEdicion()" class="btn-clear">Volver al Listado</button>
+                    <button onclick="guardarFactura()" class="btn-pdf">Guardar Simulación</button>
+                    <span id="modo-edicion-badge" class="badge badge-warning">Modo Edición</span>
+                </div>
+
+                <div class="header">
+                    <div class="header-left">
+                        <h1>ARQUIPOR <span class="subtitle">EL SALVADOR</span></h1>
+                        <p class="nrc">NRC: 0614-140224-112-2</p>
+                    </div>
+                    <div class="header-right">
+                        <div class="receipt-number-box">
+                            <span class="rn-label">FACTURA No.</span>
+                            <span class="rn-value" id="factura-correlativo">1</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="banner">SIMULACIÓN DE FACTURA</div>
+
+                <!-- Datos del Cliente -->
+                <div class="factura-section">
+                    <h4>Datos del Cliente</h4>
+                    <div class="grid-2-col">
+                        <div>
+                            <label>Tipo de Factura:</label>
+                            <select id="factura-tipo" onchange="toggleRetencion()">
+                                <option value="Consumidor Final">Consumidor Final</option>
+                                <option value="Credito Fiscal">Crédito Fiscal</option>
+                                <option value="Gran Contribuyente">Gran Contribuyente</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label>Nombre / Razón Social:</label>
+                            <input type="text" id="factura-cliente-nombre" placeholder="Nombre del cliente">
+                        </div>
+                        <div>
+                            <label>NIT:</label>
+                            <input type="text" id="factura-cliente-nit" placeholder="0000-000000-000-0">
+                        </div>
+                        <div>
+                            <label>NRC:</label>
+                            <input type="text" id="factura-cliente-nrc" placeholder="000000-0">
+                        </div>
+                        <div>
+                            <label>DUI:</label>
+                            <input type="text" id="factura-cliente-dui" placeholder="00000000-0">
+                        </div>
+                        <div>
+                            <label>Fecha:</label>
+                            <input type="date" id="factura-fecha">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Detalle de Productos -->
+                <div class="factura-section">
+                    <h4>Detalle de Productos</h4>
+                    <div class="control-group no-print">
+                        <select id="select-producto">
+                            <option value="">-- Seleccionar Producto --</option>
+                        </select>
+                        <input type="number" id="cantidad-producto" value="1" min="1" style="width: 60px;">
+                        <button onclick="agregarItemFactura()" class="btn-draft">Agregar Item</button>
+                    </div>
+                    <table class="items-table" id="tabla-items">
+                        <thead>
+                            <tr>
+                                <th>Cantidad</th>
+                                <th>Descripción</th>
+                                <th>Precio Unitario (sin IVA)</th>
+                                <th>Total (sin IVA)</th>
+                                <th class="no-print">Acción</th>
+                            </tr>
+                        </thead>
+                        <tbody id="cuerpo-items"></tbody>
+                    </table>
+                </div>
+
+                <!-- Totales -->
+                <div class="factura-section totales-container">
+                    <div class="totales-box">
+                        <div class="total-row"><span>Subtotal (sin IVA):</span> <span id="factura-subtotal">$0.00</span></div>
+                        <div class="total-row"><span>IVA (13%):</span> <span id="factura-iva">$0.00</span></div>
+                        <div class="total-row"><span>Total con IVA:</span> <span id="factura-total-con-iva">$0.00</span></div>
+                        <div class="total-row" id="fila-retencion" style="display: none; color: #d9534f;">
+                            <span>Retención (1% Gran Contribuyente):</span> <span id="factura-retencion">$0.00</span>
+                        </div>
+                        <div class="total-row grand-total"><span>TOTAL A PAGAR:</span> <span id="factura-total-pagar">$0.00</span></div>
+                    </div>
+                </div>
+
+                <!-- Abonos -->
+                <div class="factura-section">
+                    <h4>Abonos / Pagos</h4>
+                    <div class="control-group no-print">
+                        <select id="abono-metodo">
+                            <option value="Efectivo">Efectivo</option>
+                            <option value="Transferencia">Transferencia</option>
+                            <option value="Cheque">Cheque</option>
+                            <option value="Tarjeta">Tarjeta</option>
+                        </select>
+                        <input type="date" id="abono-fecha">
+                        <input type="number" id="abono-monto" placeholder="Monto $" step="0.01">
+                        <button onclick="agregarAbono()" class="btn-pdf">Registrar Abono</button>
+                    </div>
+                    <table class="items-table" id="tabla-abonos">
+                        <thead>
+                            <tr>
+                                <th>Fecha</th>
+                                <th>Método</th>
+                                <th>Monto</th>
+                                <th>% del Total</th>
+                                <th>Saldo Restante</th>
+                                <th class="no-print">Acción</th>
+                            </tr>
+                        </thead>
+                        <tbody id="cuerpo-abonos"></tbody>
+                    </table>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- MODAL DE BORRADORES -->
+    <!-- MODAL DE PRODUCTOS -->
+    <div id="modal-productos" class="modal">
+        <div class="modal-content" style="width: 80%; max-width: 800px;">
+            <span class="close" onclick="cerrarModalProductos()">&times;</span>
+            <h2>Gestión de Productos</h2>
+            <div class="control-group">
+                <input type="file" id="excel-file" accept=".xlsx, .xls">
+                <button onclick="importarExcel()" class="btn-draft">Importar desde Excel</button>
+            </div>
+            <hr>
+            <h3>Agregar Producto Manual</h3>
+            <div class="control-group">
+                <input type="text" id="prod-codigo" placeholder="Código">
+                <input type="text" id="prod-nombre" placeholder="Nombre del producto">
+                <input type="number" id="prod-precio" placeholder="Precio con IVA $" step="0.01">
+                <button onclick="agregarProductoManual()" class="btn-pdf">Agregar</button>
+            </div>
+            <hr>
+            <h3>Lista de Productos</h3>
+            <table class="items-table" id="tabla-productos">
+                <thead>
+                    <tr><th>Código</th><th>Nombre</th><th>Precio (sin IVA)</th><th>IVA</th><th>Precio Final</th><th>Acción</th></tr>
+                </thead>
+                <tbody id="cuerpo-productos"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- MODAL DE BORRADORES (RECIBOS) -->
     <div id="modal-borradores" class="modal">
         <div class="modal-content">
             <span class="close" onclick="cerrarModalBorradores()">&times;</span>
-            <h2>Borradores Guardados en la Nube</h2>
+            <h2>Borradores de Recibos</h2>
             <div id="lista-borradores"></div>
         </div>
     </div>
 
-    <!-- Script Principal (Módulo para Firebase) -->
     <script type="module" src="app.js"></script>
 </body>
 </html>
