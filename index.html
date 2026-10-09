@@ -7,7 +7,6 @@
     <link rel="stylesheet" href="styles.css">
     <script src="https://unpkg.com/smooth-signature/dist/index.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
-    <!-- SheetJS para importar Excel -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 </head>
 <body>
@@ -115,7 +114,8 @@
                 <table class="receipt-table" id="tabla-facturas">
                     <thead>
                         <tr>
-                            <th>Correlativo</th>
+                            <th>Cód. Generación</th>
+                            <th>N° Control</th>
                             <th>Cliente</th>
                             <th>Tipo</th>
                             <th>Total a Pagar</th>
@@ -144,8 +144,10 @@
                     </div>
                     <div class="header-right">
                         <div class="receipt-number-box">
-                            <span class="rn-label">FACTURA No.</span>
-                            <span class="rn-value" id="factura-correlativo">1</span>
+                            <span class="rn-label">CÓDIGO DE GENERACIÓN</span>
+                            <input type="text" id="factura-codigo-generacion" placeholder="Ej: ABC-123-XYZ" class="header-input">
+                            <span class="rn-label" style="margin-top: 8px;">N° DE CONTROL</span>
+                            <input type="text" id="factura-numero-control" placeholder="Ej: 0001-0001-00000001" class="header-input">
                         </div>
                     </div>
                 </div>
@@ -190,7 +192,10 @@
                 <div class="factura-section">
                     <h4>Detalle de Productos</h4>
                     <div class="control-group no-print">
-                        <select id="select-producto">
+                        <input type="text" id="buscar-producto" placeholder="🔍 Buscar producto..." oninput="filtrarProductos()" style="flex: 1; min-width: 180px;">
+                    </div>
+                    <div class="control-group no-print">
+                        <select id="select-producto" style="flex: 2; min-width: 200px;">
                             <option value="">-- Seleccionar Producto --</option>
                         </select>
                         <input type="number" id="cantidad-producto" value="1" min="1" style="width: 70px;" placeholder="Cant.">
@@ -229,7 +234,7 @@
                 <div class="factura-section">
                     <h4>Abonos / Pagos</h4>
                     <div class="control-group no-print">
-                        <select id="abono-metodo">
+                        <select id="abono-metodo" onchange="toggleCamposDeposito()">
                             <option value="Efectivo">Efectivo</option>
                             <option value="Transferencia">Transferencia</option>
                             <option value="Cheque">Cheque</option>
@@ -237,6 +242,14 @@
                         </select>
                         <input type="date" id="abono-fecha">
                         <input type="number" id="abono-monto" placeholder="Monto $" step="0.01">
+                    </div>
+                    <!-- Campos condicionales para Efectivo/Cheque -->
+                    <div class="control-group no-print" id="campos-deposito" style="display: none; background: #fff3cd; padding: 10px; border-radius: 6px;">
+                        <label style="font-weight: bold; color: #856404;">💼 Datos del Depósito Bancario:</label>
+                        <input type="date" id="abono-fecha-deposito" placeholder="Fecha de depósito">
+                        <input type="text" id="abono-nombre-deposito" placeholder="Nombre de quien depositó" style="flex: 1; min-width: 180px;">
+                    </div>
+                    <div class="control-group no-print">
                         <button onclick="agregarAbono()" class="btn-pdf">Registrar Abono</button>
                     </div>
                     <table class="items-table" id="tabla-abonos">
@@ -247,6 +260,7 @@
                                 <th>Monto</th>
                                 <th>% del Total</th>
                                 <th>Saldo Restante</th>
+                                <th>Depósito</th>
                                 <th class="no-print">Acción</th>
                             </tr>
                         </thead>
@@ -274,7 +288,7 @@
                 <button onclick="agregarProductoManual()" class="btn-pdf">Agregar</button>
             </div>
             <hr>
-            <h3>Lista de Productos</h3>
+            <h3>Lista de Productos (Orden Alfabético)</h3>
             <table class="items-table" id="tabla-productos">
                 <thead>
                     <tr><th>Nombre del Producto</th><th>Acción</th></tr>
