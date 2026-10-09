@@ -11,7 +11,6 @@
 </head>
 <body>
 
-    <!-- LOGIN -->
     <div id="auth-container" class="auth-container">
         <div class="auth-box">
             <h2>Iniciar Sesión</h2>
@@ -24,13 +23,10 @@
         </div>
     </div>
 
-    <!-- DATALISTS GLOBALES -->
     <datalist id="lista-productos"></datalist>
     <datalist id="lista-nombres"></datalist>
 
-    <!-- APLICACIÓN PRINCIPAL -->
     <div id="app-container" style="display: none;">
-        
         <div class="navbar no-print">
             <div class="nav-brand">ARQUIPOR</div>
             <div class="nav-tabs">
@@ -147,7 +143,8 @@
                                 <input type="checkbox" id="factura-multiple-dte" onchange="toggleMultipleDTE()">
                                 Múltiples DTEs
                             </label>
-                            <div id="campos-dte" style="display:none; flex-direction: column; align-items: flex-end; margin-top: 8px;">
+                            <!-- Campos DTE del header: visibles SOLO cuando la casilla está DESMARCADA -->
+                            <div id="campos-dte-header" style="display:flex; flex-direction:column; align-items:flex-end; margin-top: 10px;">
                                 <span class="rn-label">CÓDIGO DE GENERACIÓN</span>
                                 <input type="text" id="factura-codigo-generacion" placeholder="Ej: ABC-123-XYZ" class="header-input">
                                 <span class="rn-label" style="margin-top: 8px;">N° DE CONTROL</span>
@@ -158,7 +155,6 @@
                 </div>
                 <div class="banner">SIMULACIÓN DE FACTURA</div>
 
-                <!-- Datos del Cliente -->
                 <div class="factura-section">
                     <h4>Datos del Cliente</h4>
                     <div class="grid-2-col">
@@ -197,7 +193,6 @@
                     </div>
                 </div>
 
-                <!-- Detalle Productos -->
                 <div class="factura-section">
                     <h4>Detalle de Productos</h4>
                     <div class="control-group no-print">
@@ -221,7 +216,6 @@
                     </table>
                 </div>
 
-                <!-- Totales -->
                 <div class="factura-section totales-container">
                     <div class="totales-box">
                         <div class="total-row"><span>Subtotal (sin IVA):</span> <span id="factura-subtotal">$0.00000</span></div>
@@ -234,7 +228,6 @@
                     </div>
                 </div>
 
-                <!-- Abonos -->
                 <div class="factura-section">
                     <h4>Abonos / Pagos</h4>
                     <div class="control-group no-print">
@@ -249,7 +242,8 @@
                         <button onclick="agregarAbono()" class="btn-pdf">Registrar Abono</button>
                     </div>
                     <p class="no-print" style="font-size: 12px; color: #856404; background: #fff3cd; padding: 8px; border-radius: 4px;">
-                        💡 Para abonos en <b>Efectivo</b> o <b>Cheque</b>, después de registrarlo aparecerán los campos de depósito en la tabla para que los llene cuando lo haga.
+                        💡 Para abonos en <b>Efectivo</b> o <b>Cheque</b>, aparecerán campos de depósito en la tabla.<br>
+                        💡 Si marcaste <b>Múltiples DTEs</b>, cada abono tendrá sus propios campos de Código y N° de Control.
                     </p>
                     <table class="items-table" id="tabla-abonos">
                         <thead>
@@ -260,6 +254,7 @@
                                 <th>%</th>
                                 <th>Saldo</th>
                                 <th>Depósito Bancario</th>
+                                <th id="th-dte-abono" style="display:none;">DTE del Abono</th>
                                 <th class="no-print">Acción</th>
                             </tr>
                         </thead>
@@ -299,7 +294,7 @@
         <div class="modal-content" style="width: 50%; max-width: 500px;">
             <span class="close" onclick="cerrarModalNombres()">&times;</span>
             <h2>Gestión de Nombres</h2>
-            <p style="font-size:12px; color:#666;">Estos nombres se usarán para el vendedor y para el nombre de quien deposita.</p>
+            <p style="font-size:12px; color:#666;">Estos nombres se usarán para el vendedor y para quien deposita.</p>
             <div class="control-group">
                 <input type="text" id="nombres-nombre" placeholder="Nombre completo" style="width: 70%;">
                 <button onclick="agregarNombreManual()" class="btn-pdf">Agregar</button>
