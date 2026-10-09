@@ -212,22 +212,33 @@ window.descargarPDF = async function() {
 // 7. MÓDULO DE FACTURAS (SIMULADOR)
 // ==========================================
 
-// --- 7.1 Productos (Solo Nombres) ---
+// --- 7.1 Productos (Solo Nombres, ordenados alfabéticamente y con búsqueda) ---
 async function cargarProductos() {
     const q = query(collection(db, "productos"), where("userId", "==", currentUser.uid));
     const snap = await getDocs(q);
     productosGlobal = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    // Ordenar alfabéticamente por nombre
+    productosGlobal.sort((a, b) => a.nombre.localeCompare(b.nombre));
     actualizarSelectProductos();
     renderizarTablaProductos();
 }
 
-function actualizarSelectProductos() {
+function actualizarSelectProductos(filtro = '') {
     const select = document.getElementById('select-producto');
     select.innerHTML = '<option value="">-- Seleccionar Producto --</option>';
-    productosGlobal.forEach(p => {
-        select.innerHTML += `<option value="${p.id}">${p.nombre}</option>`;
-    });
+    
+    const filtroLower = filtro.toLowerCase();
+    productosGlobal
+        .filter(p => p.nombre.toLowerCase().includes(filtroLower))
+        .forEach(p => {
+            select.innerHTML += `<option value="${p.id}">${p.nombre}</option>`;
+        });
 }
+
+window.filtrarProductos = function() {
+    const filtro = document.getElementById('buscar-producto').value;
+    actualizarSelectProductos(filtro);
+};
 
 function renderizarTablaProductos() {
     const tbody = document.getElementById('cuerpo-productos');
@@ -258,7 +269,6 @@ window.importarExcel = function() {
 
         let importados = 0;
         for (const row of jsonData) {
-            // Buscamos cualquier columna que se llame Nombre, nombre, Producto, etc.
             const nombre = row.Nombre || row.nombre || row.NOMBRE || row.Producto || row.producto || row.PRODUCTO;
             if (nombre) {
                 await addDoc(collection(db, "productos"), { userId: currentUser.uid, nombre });
@@ -301,11 +311,15 @@ window.nuevaFactura = function() {
     document.getElementById('factura-cliente-nrc').value = '';
     document.getElementById('factura-cliente-dui').value = '';
     document.getElementById('factura-fecha').value = new Date().toISOString().split('T')[0];
+    document.getElementById('factura-codigo-generacion').value = '';
+    document.getElementById('factura-numero-control').value = '';
+    document.getElementById('buscar-producto').value = '';
     document.getElementById('modo-edicion-badge').style.display = 'none';
     document.getElementById('formulario-factura').style.display = 'block';
     document.getElementById('lista-facturas-container').style.display = 'none';
-    document.getElementById('factura-correlativo').textContent = 'NUEVA';
+    document.getElementById('factura-correlativo').textContent = '';
     toggleRetencion();
+    toggleCamposDeposito();
     renderizarItemsFactura();
     renderizarAbonosFactura();
 };
@@ -324,6 +338,19 @@ function toggleRetencion() {
     calcularTotalesFactura();
 }
 
+// Mostrar/ocultar campos de depósito según método de abono
+window.toggleCamposDeposito = function() {
+    const metodo = document.getElementById('abono-metodo').value;
+    const camposDeposito = document.getElementById('campos-deposito');
+    if (metodo === 'Efectivo' || metodo === 'Cheque') {
+        camposDeposito.style.display = 'flex';
+    } else {
+        camposDeposito.style.display = 'none';
+        document.getElementById('abono-fecha-deposito').value = '';
+        document.getElementById('abono-nombre-deposito').value = '';
+    }
+};
+
 window.agregarItemFactura = function() {
     const prodId = document.getElementById('select-producto').value;
     const cantidad = parseInt(document.getElementById('cantidad-producto').value);
@@ -334,7 +361,6 @@ window.agregarItemFactura = function() {
     const prod = productosGlobal.find(p => p.id === prodId);
     if (!prod) return;
 
-    // Cálculo inverso para El Salvador (IVA 13%)
     const precioSinIva = precioConIva / 1.13;
     const totalSinIva = precioSinIva * cantidad;
 
@@ -347,8 +373,10 @@ window.agregarItemFactura = function() {
     });
 
     document.getElementById('select-producto').value = '';
+    document.getElementById('buscar-producto').value = '';
     document.getElementById('cantidad-producto').value = '1';
     document.getElementById('precio-con-iva-item').value = '';
+    actualizarSelectProductos(); // Resetear filtro
     renderizarItemsFactura();
 };
 
@@ -400,8 +428,25 @@ window.agregarAbono = function() {
 
     if (isNaN(monto) || monto <= 0) return alert("Ingrese un monto de abono válido.");
 
-    abonosFactura.push({ metodo, fecha, monto });
+    const abono = { metodo, fecha, monto };
+
+    // Si es Efectivo o Cheque, requerir datos del depósito
+    if (metodo === 'Efectivo' || metodo === 'Cheque') {
+        const fechaDeposito = document.getElementById('abono-fecha-deposito').value;
+        const nombreDeposito = document.getElementById('abono-nombre-deposito').value.trim();
+        
+        if (!fechaDeposito || !nombreDeposito) {
+            return alert("Para abonos en Efectivo o Cheque, debe indicar la fecha de depósito y el nombre de quien depositó.");
+        }
+        
+        abono.fechaDeposito = fechaDeposito;
+        abono.nombreDeposito = nombreDeposito;
+    }
+
+    abonosFactura.push(abono);
     document.getElementById('abono-monto').value = '';
+    document.getElementById('abono-fecha-deposito').value = '';
+    document.getElementById('abono-nombre-deposito').value = '';
     renderizarAbonosFactura();
 };
 
@@ -416,6 +461,11 @@ function renderizarAbonosFactura() {
         totalAbonado += abono.monto;
         const porcentaje = totalPagar > 0 ? (abono.monto / totalPagar) * 100 : 0;
         const saldo = totalPagar - totalAbonado;
+        
+        let infoDeposito = '-';
+        if (abono.fechaDeposito || abono.nombreDeposito) {
+            infoDeposito = `📅 ${abono.fechaDeposito || 'N/A'}<br>👤 ${abono.nombreDeposito || 'N/A'}`;
+        }
 
         tbody.innerHTML += `
             <tr>
@@ -424,12 +474,13 @@ function renderizarAbonosFactura() {
                 <td>$${abono.monto.toFixed(2)}</td>
                 <td>${porcentaje.toFixed(2)}%</td>
                 <td>$${saldo.toFixed(2)}</td>
+                <td style="font-size: 12px;">${infoDeposito}</td>
                 <td class="no-print"><button onclick="eliminarAbono(${index})" class="btn-clear" style="padding:2px 6px; font-size:12px;">X</button></td>
             </tr>`;
     });
 
     if (abonosFactura.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; color:#999;">No hay abonos registrados</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; color:#999;">No hay abonos registrados</td></tr>';
     }
 }
 
@@ -442,7 +493,12 @@ window.eliminarAbono = function(index) {
 window.guardarFactura = async function() {
     const tipo = document.getElementById('factura-tipo').value;
     const cliente = document.getElementById('factura-cliente-nombre').value.trim();
+    const codigoGeneracion = document.getElementById('factura-codigo-generacion').value.trim();
+    const numeroControl = document.getElementById('factura-numero-control').value.trim();
+    
     if (!cliente) return alert("Ingrese el nombre del cliente.");
+    if (!codigoGeneracion) return alert("Ingrese el Código de Generación.");
+    if (!numeroControl) return alert("Ingrese el Número de Control.");
     if (itemsFactura.length === 0) return alert("Agregue al menos un producto.");
 
     const subtotal = itemsFactura.reduce((sum, item) => sum + item.totalSinIva, 0);
@@ -456,6 +512,7 @@ window.guardarFactura = async function() {
 
     const facturaData = {
         userId: currentUser.uid, tipo, cliente,
+        codigoGeneracion, numeroControl,
         nit: document.getElementById('factura-cliente-nit').value,
         nrc: document.getElementById('factura-cliente-nrc').value,
         dui: document.getElementById('factura-cliente-dui').value,
@@ -469,27 +526,28 @@ window.guardarFactura = async function() {
         await updateDoc(doc(db, "facturas", facturaEditandoId), facturaData);
         alert("Simulación actualizada.");
     } else {
+        // Aún mantenemos el correlativo interno para referencia
         const docRef = doc(db, "configuracion", "correlativoFactura");
         const docSnap = await getDoc(docRef);
         const correlativo = docSnap.data().valor;
         facturaData.correlativo = correlativo;
         await addDoc(collection(db, "facturas"), facturaData);
         await setDoc(docRef, { valor: correlativo + 1 });
-        alert(`Simulación guardada con correlativo #${correlativo}.`);
+        alert(`Simulación guardada con correlativo interno #${correlativo}.`);
     }
     cancelarEdicion();
 };
 
 async function cargarListaFacturas() {
     const tbody = document.getElementById('cuerpo-tabla-facturas');
-    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;">Cargando...</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;">Cargando...</td></tr>';
     
     const q = query(collection(db, "facturas"), where("userId", "==", currentUser.uid));
     const snap = await getDocs(q);
     tbody.innerHTML = '';
 
     if (snap.empty) {
-        tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;">No hay simulaciones guardadas.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;">No hay simulaciones guardadas.</td></tr>';
         return;
     }
 
@@ -498,7 +556,8 @@ async function cargarListaFacturas() {
         const badgeClass = d.estado === 'Cancelada' ? 'badge-success' : 'badge-warning';
         tbody.innerHTML += `
             <tr>
-                <td>#${d.correlativo}</td>
+                <td style="font-size:12px;">${d.codigoGeneracion || '-'}</td>
+                <td style="font-size:12px;">${d.numeroControl || '-'}</td>
                 <td>${d.cliente}</td>
                 <td>${d.tipo}</td>
                 <td>$${d.totalPagar.toFixed(2)}</td>
@@ -529,7 +588,8 @@ window.verFactura = async function(id) {
     document.getElementById('factura-cliente-nrc').value = d.nrc || '';
     document.getElementById('factura-cliente-dui').value = d.dui || '';
     document.getElementById('factura-fecha').value = d.fecha;
-    document.getElementById('factura-correlativo').textContent = d.correlativo;
+    document.getElementById('factura-codigo-generacion').value = d.codigoGeneracion || '';
+    document.getElementById('factura-numero-control').value = d.numeroControl || '';
     
     document.getElementById('formulario-factura').style.display = 'block';
     document.getElementById('lista-facturas-container').style.display = 'none';
@@ -559,7 +619,8 @@ window.editarFactura = async function(id) {
     document.getElementById('factura-cliente-nrc').value = d.nrc || '';
     document.getElementById('factura-cliente-dui').value = d.dui || '';
     document.getElementById('factura-fecha').value = d.fecha;
-    document.getElementById('factura-correlativo').textContent = d.correlativo;
+    document.getElementById('factura-codigo-generacion').value = d.codigoGeneracion || '';
+    document.getElementById('factura-numero-control').value = d.numeroControl || '';
     
     document.getElementById('formulario-factura').style.display = 'block';
     document.getElementById('lista-facturas-container').style.display = 'none';
@@ -570,6 +631,7 @@ window.editarFactura = async function(id) {
     document.querySelectorAll('#formulario-factura input, #formulario-factura select, #formulario-factura button:not(.btn-clear)').forEach(el => el.disabled = false);
 
     toggleRetencion();
+    toggleCamposDeposito();
     renderizarItemsFactura();
     renderizarAbonosFactura();
 };
