@@ -21,13 +21,19 @@ const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const auth = getAuth(app);
 
-// Variables Globales
+// ==========================================
+// VARIABLES GLOBALES
+// ==========================================
 let currentUser = null;
 let receiverSignature, payerSignature;
 let productosGlobal = [];
+let nombresGlobal = [];
 let itemsFactura = [];
 let abonosFactura = [];
 let facturaEditandoId = null;
+
+// Helper: formatear moneda con 5 decimales
+const fmt5 = (n) => '$' + (parseFloat(n) || 0).toFixed(5);
 
 // ==========================================
 // 3. AUTENTICACIÓN
@@ -66,7 +72,6 @@ onAuthStateChanged(auth, (user) => {
 window.switchTab = function(tab) {
     document.querySelectorAll('.view-section').forEach(v => v.style.display = 'none');
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-    
     if (tab === 'recibos') {
         document.getElementById('view-recibos').style.display = 'block';
         document.querySelector('.tab-btn:nth-child(1)').classList.add('active');
@@ -78,7 +83,7 @@ window.switchTab = function(tab) {
 };
 
 // ==========================================
-// 5. INICIALIZACIÓN DE LA APP
+// 5. INICIALIZACIÓN
 // ==========================================
 async function inicializarApp() {
     receiverSignature = new SmoothSignature(document.querySelector("#signature-receiver"));
@@ -86,11 +91,12 @@ async function inicializarApp() {
     await cargarCorrelativo();
     await cargarPersonasFrecuentes();
     await cargarProductos();
+    await cargarNombres();
     await cargarCorrelativoFactura();
 }
 
 // ==========================================
-// 6. MÓDULO DE RECIBOS
+// 6. MÓDULO RECIBOS
 // ==========================================
 async function cargarCorrelativo() {
     const docRef = doc(db, "configuracion", "correlativo");
@@ -119,9 +125,9 @@ async function cargarPersonasFrecuentes() {
     select.innerHTML = '<option value="">-- Seleccionar --</option>';
     const q = query(collection(db, "personas"), where("userId", "==", currentUser.uid));
     const snap = await getDocs(q);
-    snap.forEach(doc => {
-        const p = doc.data();
-        select.innerHTML += `<option value="${doc.id}">${p.nombre} (${p.dui})</option>`;
+    snap.forEach(d => {
+        const p = d.data();
+        select.innerHTML += `<option value="${d.id}">${p.nombre} (${p.dui})</option>`;
     });
     select.onchange = (e) => {
         const id = e.target.value;
@@ -150,9 +156,9 @@ window.abrirModalBorradores = async function() {
     const q = query(collection(db, "borradores"), where("userId", "==", currentUser.uid));
     const snap = await getDocs(q);
     lista.innerHTML = '';
-    snap.forEach(doc => {
-        const d = doc.data();
-        lista.innerHTML += `<div class="borrador-item"><span><b>${d.nombre || 'Sin nombre'}</b> - $${d.monto || '0'}</span><div><button onclick="cargarBorrador('${doc.id}')" class="btn-pdf">Cargar</button><button onclick="eliminarBorrador('${doc.id}')" class="btn-clear">Eliminar</button></div></div>`;
+    snap.forEach(d => {
+        const data = d.data();
+        lista.innerHTML += `<div class="borrador-item"><span><b>${data.nombre || 'Sin nombre'}</b> - $${data.monto || '0'}</span><div><button onclick="cargarBorrador('${d.id}')" class="btn-pdf">Cargar</button><button onclick="eliminarBorrador('${d.id}')" class="btn-clear">Eliminar</button></div></div>`;
     });
 };
 window.cerrarModalBorradores = () => document.getElementById('modal-borradores').style.display = 'none';
@@ -183,24 +189,19 @@ window.descargarPDF = async function() {
     const nombre = document.getElementById('nombre').value.trim();
     const monto = document.getElementById('monto').value.trim();
     if (!nombre || !monto) return alert("Complete Nombre y Monto.");
-    
     const elemento = document.getElementById('receipt-container');
     const correlativo = document.getElementById('receipt-number-value').textContent;
     const opciones = { margin: 0, filename: `Recibo_${correlativo}_${nombre.replace(/\s+/g, '_')}.pdf`, image: { type: 'jpeg', quality: 0.98 }, html2canvas: { scale: 2 }, jsPDF: { unit: 'mm', format: 'letter', orientation: 'portrait' } };
-
     document.querySelectorAll('.clear-sig').forEach(b => b.style.display = 'none');
-
     try {
         const pdfWorker = html2pdf().set(opciones).from(elemento);
         const pdfDataUri = await pdfWorker.toPdf().get('pdf').then(pdf => pdf.output('datauristring'));
         await pdfWorker.save();
-
         await addDoc(collection(db, "recibos_pdfs"), {
-            userId: currentUser.uid, correlativo: correlativo, nombre: nombre, monto: monto,
+            userId: currentUser.uid, correlativo, nombre, monto,
             fecha: document.getElementById('fecha').value || new Date().toISOString().split('T')[0],
             pdfBase64: pdfDataUri
         });
-
         await incrementarCorrelativo();
         limpiarFormulario();
         alert("PDF generado, descargado y guardado en la nube exitosamente.");
@@ -209,69 +210,42 @@ window.descargarPDF = async function() {
 };
 
 // ==========================================
-// 7. MÓDULO DE FACTURAS (SIMULADOR)
+// 7. PRODUCTOS
 // ==========================================
-
-// --- 7.1 Productos ---
 async function cargarProductos() {
     const q = query(collection(db, "productos"), where("userId", "==", currentUser.uid));
     const snap = await getDocs(q);
-    productosGlobal = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    productosGlobal = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     productosGlobal.sort((a, b) => a.nombre.localeCompare(b.nombre));
-    actualizarSelectProductos();
+    actualizarDatalistProductos();
     renderizarTablaProductos();
 }
 
-function actualizarSelectProductos(filtro = '') {
-    const select = document.getElementById('select-producto');
-    select.innerHTML = '<option value="">-- Seleccionar Producto --</option>';
-    
-    const filtroLower = filtro.toLowerCase();
-    productosGlobal
-        .filter(p => p.nombre.toLowerCase().includes(filtroLower))
-        .forEach(p => {
-            select.innerHTML += `<option value="${p.id}">${p.nombre}</option>`;
-        });
+function actualizarDatalistProductos() {
+    const datalist = document.getElementById('lista-productos');
+    datalist.innerHTML = productosGlobal.map(p => `<option value="${p.nombre}"></option>`).join('');
 }
-
-window.filtrarProductos = function() {
-    const filtro = document.getElementById('buscar-producto').value;
-    actualizarSelectProductos(filtro);
-};
 
 function renderizarTablaProductos() {
     const tbody = document.getElementById('cuerpo-productos');
     tbody.innerHTML = '';
     productosGlobal.forEach(p => {
-        tbody.innerHTML += `
-            <tr>
-                <td>${p.nombre}</td>
-                <td><button onclick="eliminarProducto('${p.id}')" class="btn-clear">Eliminar</button></td>
-            </tr>`;
+        tbody.innerHTML += `<tr><td>${p.nombre}</td><td><button onclick="eliminarProducto('${p.id}')" class="btn-clear">Eliminar</button></td></tr>`;
     });
 }
 
 window.abrirModalProductos = () => { document.getElementById('modal-productos').style.display = 'block'; cargarProductos(); };
 window.cerrarModalProductos = () => document.getElementById('modal-productos').style.display = 'none';
 
-// 🔥 NUEVA FUNCIÓN: Elimina todos los productos duplicados existentes
 window.limpiarDuplicados = async function() {
-    if (!confirm("¿Eliminar todos los productos duplicados? Se conservará el primer registro de cada nombre.")) return;
-    
-    // Agrupar por nombre normalizado (minúsculas, sin espacios extremos)
+    if (!confirm("¿Eliminar todos los productos duplicados? Se conservará el primer registro.")) return;
     const vistos = new Set();
     let eliminados = 0;
-    
     for (const p of productosGlobal) {
         const clave = p.nombre.trim().toLowerCase();
-        if (vistos.has(clave)) {
-            await deleteDoc(doc(db, "productos", p.id));
-            eliminados++;
-        } else {
-            vistos.add(clave);
-        }
+        if (vistos.has(clave)) { await deleteDoc(doc(db, "productos", p.id)); eliminados++; }
+        else vistos.add(clave);
     }
-    
     alert(`Se eliminaron ${eliminados} productos duplicados.`);
     await cargarProductos();
 };
@@ -280,34 +254,21 @@ window.importarExcel = function() {
     const fileInput = document.getElementById('excel-file');
     const file = fileInput.files[0];
     if (!file) return alert("Seleccione un archivo Excel.");
-
     const reader = new FileReader();
     reader.onload = async (e) => {
         const data = new Uint8Array(e.target.result);
         const workbook = XLSX.read(data, { type: 'array' });
         const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
         const jsonData = XLSX.utils.sheet_to_json(firstSheet);
-
-        // Nombres ya existentes en la BD (normalizados)
         const existentes = new Set(productosGlobal.map(p => p.nombre.trim().toLowerCase()));
-        // Nombres ya procesados dentro de este mismo Excel para evitar duplicados internos
         const procesadosEnEsteExcel = new Set();
-
-        let importados = 0;
-        let omitidos = 0;
-
+        let importados = 0, omitidos = 0;
         for (const row of jsonData) {
             const nombreRaw = row.Nombre || row.nombre || row.NOMBRE || row.Producto || row.producto || row.PRODUCTO;
             if (nombreRaw) {
                 const nombre = String(nombreRaw).trim();
                 const clave = nombre.toLowerCase();
-
-                // Omitir si ya existe en la BD o si ya apareció en este mismo Excel
-                if (existentes.has(clave) || procesadosEnEsteExcel.has(clave)) {
-                    omitidos++;
-                    continue;
-                }
-
+                if (existentes.has(clave) || procesadosEnEsteExcel.has(clave)) { omitidos++; continue; }
                 await addDoc(collection(db, "productos"), { userId: currentUser.uid, nombre });
                 procesadosEnEsteExcel.add(clave);
                 importados++;
@@ -323,13 +284,8 @@ window.importarExcel = function() {
 window.agregarProductoManual = async function() {
     const nombre = document.getElementById('prod-nombre').value.trim();
     if (!nombre) return alert("Ingrese el nombre del producto.");
-    
-    // 🔥 Validar que no exista ya (sin importar mayúsculas/minúsculas)
     const existe = productosGlobal.some(p => p.nombre.trim().toLowerCase() === nombre.toLowerCase());
-    if (existe) {
-        return alert("Este producto ya existe en la lista. No se permiten duplicados.");
-    }
-    
+    if (existe) return alert("Este producto ya existe.");
     await addDoc(collection(db, "productos"), { userId: currentUser.uid, nombre });
     document.getElementById('prod-nombre').value = '';
     await cargarProductos();
@@ -339,30 +295,82 @@ window.eliminarProducto = async function(id) {
     if (confirm("¿Eliminar producto?")) { await deleteDoc(doc(db, "productos", id)); await cargarProductos(); }
 };
 
-// --- 7.2 Facturas ---
+// ==========================================
+// 8. NOMBRES (Vendedor / Depositante)
+// ==========================================
+async function cargarNombres() {
+    const q = query(collection(db, "nombres"), where("userId", "==", currentUser.uid));
+    const snap = await getDocs(q);
+    nombresGlobal = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    nombresGlobal.sort((a, b) => a.nombre.localeCompare(b.nombre));
+    actualizarDatalistNombres();
+    renderizarTablaNombres();
+}
+
+function actualizarDatalistNombres() {
+    const datalist = document.getElementById('lista-nombres');
+    datalist.innerHTML = nombresGlobal.map(n => `<option value="${n.nombre}"></option>`).join('');
+}
+
+function renderizarTablaNombres() {
+    const tbody = document.getElementById('cuerpo-nombres');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+    nombresGlobal.forEach(n => {
+        tbody.innerHTML += `<tr><td>${n.nombre}</td><td><button onclick="eliminarNombre('${n.id}')" class="btn-clear">Eliminar</button></td></tr>`;
+    });
+}
+
+window.abrirModalNombres = () => { document.getElementById('modal-nombres').style.display = 'block'; cargarNombres(); };
+window.cerrarModalNombres = () => document.getElementById('modal-nombres').style.display = 'none';
+
+window.agregarNombreManual = async function() {
+    const nombre = document.getElementById('nombres-nombre').value.trim();
+    if (!nombre) return alert("Ingrese un nombre.");
+    const existe = nombresGlobal.some(n => n.nombre.trim().toLowerCase() === nombre.toLowerCase());
+    if (existe) return alert("Este nombre ya existe.");
+    await addDoc(collection(db, "nombres"), { userId: currentUser.uid, nombre });
+    document.getElementById('nombres-nombre').value = '';
+    await cargarNombres();
+};
+
+window.eliminarNombre = async function(id) {
+    if (confirm("¿Eliminar nombre?")) { await deleteDoc(doc(db, "nombres", id)); await cargarNombres(); }
+};
+
+// ==========================================
+// 9. FACTURAS
+// ==========================================
 async function cargarCorrelativoFactura() {
     const docRef = doc(db, "configuracion", "correlativoFactura");
     const docSnap = await getDoc(docRef);
     if (!docSnap.exists()) { await setDoc(docRef, { valor: 1 }); }
 }
 
+window.toggleMultipleDTE = function() {
+    const checked = document.getElementById('factura-multiple-dte').checked;
+    document.getElementById('campos-dte').style.display = checked ? 'flex' : 'none';
+};
+
 window.nuevaFactura = function() {
     facturaEditandoId = null;
     itemsFactura = []; abonosFactura = [];
     document.getElementById('factura-tipo').value = 'Consumidor Final';
+    document.getElementById('factura-vendedor').value = '';
     document.getElementById('factura-cliente-nombre').value = '';
     document.getElementById('factura-cliente-nit').value = '';
     document.getElementById('factura-cliente-nrc').value = '';
     document.getElementById('factura-cliente-dui').value = '';
     document.getElementById('factura-fecha').value = new Date().toISOString().split('T')[0];
+    document.getElementById('factura-multiple-dte').checked = false;
     document.getElementById('factura-codigo-generacion').value = '';
     document.getElementById('factura-numero-control').value = '';
+    document.getElementById('campos-dte').style.display = 'none';
     document.getElementById('buscar-producto').value = '';
     document.getElementById('modo-edicion-badge').style.display = 'none';
     document.getElementById('formulario-factura').style.display = 'block';
     document.getElementById('lista-facturas-container').style.display = 'none';
     toggleRetencion();
-    toggleCamposDeposito();
     renderizarItemsFactura();
     renderizarAbonosFactura();
 };
@@ -375,36 +383,21 @@ window.cancelarEdicion = function() {
 
 function toggleRetencion() {
     const tipo = document.getElementById('factura-tipo').value;
-    const filaRetencion = document.getElementById('fila-retencion');
-    if (tipo === 'Gran Contribuyente') filaRetencion.style.display = 'flex';
-    else filaRetencion.style.display = 'none';
+    document.getElementById('fila-retencion').style.display = (tipo === 'Gran Contribuyente') ? 'flex' : 'none';
     calcularTotalesFactura();
 }
 
-window.toggleCamposDeposito = function() {
-    const metodo = document.getElementById('abono-metodo').value;
-    const camposDeposito = document.getElementById('campos-deposito');
-    if (metodo === 'Efectivo' || metodo === 'Cheque') {
-        camposDeposito.style.display = 'flex';
-    } else {
-        camposDeposito.style.display = 'none';
-        document.getElementById('abono-fecha-deposito').value = '';
-        document.getElementById('abono-nombre-deposito').value = '';
-    }
-};
-
 window.agregarItemFactura = function() {
-    const prodId = document.getElementById('select-producto').value;
-    // 🔥 AHORA: parseFloat en vez de parseInt para permitir decimales
+    const nombreProd = document.getElementById('buscar-producto').value.trim();
     const cantidad = parseFloat(document.getElementById('cantidad-producto').value);
     const precioConIva = parseFloat(document.getElementById('precio-con-iva-item').value);
 
-    if (!prodId || isNaN(cantidad) || cantidad <= 0 || isNaN(precioConIva) || precioConIva <= 0) {
-        return alert("Seleccione producto, cantidad válida (puede usar decimales) y escriba el precio con IVA.");
-    }
+    if (!nombreProd) return alert("Escriba o seleccione un producto.");
+    if (isNaN(cantidad) || cantidad <= 0) return alert("Cantidad inválida.");
+    if (isNaN(precioConIva) || precioConIva <= 0) return alert("Precio con IVA inválido.");
 
-    const prod = productosGlobal.find(p => p.id === prodId);
-    if (!prod) return;
+    const prod = productosGlobal.find(p => p.nombre.trim().toLowerCase() === nombreProd.toLowerCase());
+    if (!prod) return alert("Producto no encontrado en la lista. Verifique el nombre o agréguelo en 'Gestionar Productos'.");
 
     const precioSinIva = precioConIva / 1.13;
     const totalSinIva = precioSinIva * cantidad;
@@ -417,11 +410,9 @@ window.agregarItemFactura = function() {
         totalSinIva: totalSinIva
     });
 
-    document.getElementById('select-producto').value = '';
     document.getElementById('buscar-producto').value = '';
     document.getElementById('cantidad-producto').value = '1';
     document.getElementById('precio-con-iva-item').value = '';
-    actualizarSelectProductos();
     renderizarItemsFactura();
 };
 
@@ -429,15 +420,14 @@ function renderizarItemsFactura() {
     const tbody = document.getElementById('cuerpo-items');
     tbody.innerHTML = '';
     itemsFactura.forEach((item, index) => {
-        // Formatear cantidad: si es entero mostrarlo sin decimales, si tiene decimales mostrarlos
         const cantMostrar = Number.isInteger(item.cantidad) ? item.cantidad : item.cantidad.toFixed(2);
         tbody.innerHTML += `
             <tr>
                 <td>${cantMostrar}</td>
                 <td>${item.nombre}</td>
-                <td>$${item.precioConIva.toFixed(2)}</td>
-                <td>$${item.precioSinIva.toFixed(2)}</td>
-                <td>$${item.totalSinIva.toFixed(2)}</td>
+                <td>${fmt5(item.precioConIva)}</td>
+                <td>${fmt5(item.precioSinIva)}</td>
+                <td>${fmt5(item.totalSinIva)}</td>
                 <td class="no-print"><button onclick="eliminarItemFactura(${index})" class="btn-clear" style="padding:2px 6px; font-size:12px;">X</button></td>
             </tr>`;
     });
@@ -453,21 +443,20 @@ function calcularTotalesFactura() {
     const subtotal = itemsFactura.reduce((sum, item) => sum + item.totalSinIva, 0);
     const iva = subtotal * 0.13;
     const totalConIva = subtotal + iva;
-    
     const tipo = document.getElementById('factura-tipo').value;
     const retencion = tipo === 'Gran Contribuyente' ? subtotal * 0.01 : 0;
     const totalPagar = totalConIva - retencion;
 
-    document.getElementById('factura-subtotal').textContent = `$${subtotal.toFixed(2)}`;
-    document.getElementById('factura-iva').textContent = `$${iva.toFixed(2)}`;
-    document.getElementById('factura-total-con-iva').textContent = `$${totalConIva.toFixed(2)}`;
-    document.getElementById('factura-retencion').textContent = `$${retencion.toFixed(2)}`;
-    document.getElementById('factura-total-pagar').textContent = `$${totalPagar.toFixed(2)}`;
+    document.getElementById('factura-subtotal').textContent = fmt5(subtotal);
+    document.getElementById('factura-iva').textContent = fmt5(iva);
+    document.getElementById('factura-total-con-iva').textContent = fmt5(totalConIva);
+    document.getElementById('factura-retencion').textContent = fmt5(retencion);
+    document.getElementById('factura-total-pagar').textContent = fmt5(totalPagar);
 
     renderizarAbonosFactura();
 }
 
-// --- 7.3 Abonos ---
+// ---------- ABONOS ----------
 window.agregarAbono = function() {
     const metodo = document.getElementById('abono-metodo').value;
     const fecha = document.getElementById('abono-fecha').value || new Date().toISOString().split('T')[0];
@@ -475,52 +464,56 @@ window.agregarAbono = function() {
 
     if (isNaN(monto) || monto <= 0) return alert("Ingrese un monto de abono válido.");
 
-    const abono = { metodo, fecha, monto };
+    abonosFactura.push({
+        metodo, fecha, monto,
+        fechaDeposito: '',
+        nombreDeposito: ''
+    });
 
-    if (metodo === 'Efectivo' || metodo === 'Cheque') {
-        const fechaDeposito = document.getElementById('abono-fecha-deposito').value;
-        const nombreDeposito = document.getElementById('abono-nombre-deposito').value.trim();
-        
-        if (!fechaDeposito || !nombreDeposito) {
-            return alert("Para abonos en Efectivo o Cheque, debe indicar la fecha de depósito y el nombre de quien depositó.");
-        }
-        
-        abono.fechaDeposito = fechaDeposito;
-        abono.nombreDeposito = nombreDeposito;
-    }
-
-    abonosFactura.push(abono);
     document.getElementById('abono-monto').value = '';
-    document.getElementById('abono-fecha-deposito').value = '';
-    document.getElementById('abono-nombre-deposito').value = '';
     renderizarAbonosFactura();
+};
+
+// Guarda los datos del depósito en el abono correspondiente SIN re-renderizar (para no perder el foco)
+window.guardarDepositoAbono = function(index, campo, valor) {
+    if (!abonosFactura[index]) return;
+    if (campo === 'fecha') abonosFactura[index].fechaDeposito = valor;
+    if (campo === 'nombre') abonosFactura[index].nombreDeposito = valor;
 };
 
 function renderizarAbonosFactura() {
     const tbody = document.getElementById('cuerpo-abonos');
     tbody.innerHTML = '';
-    
-    const totalPagar = parseFloat(document.getElementById('factura-total-pagar').textContent.replace('$', ''));
-    
+    const totalPagar = parseFloat(document.getElementById('factura-total-pagar').textContent.replace('$', '')) || 0;
+
     let totalAbonado = 0;
     abonosFactura.forEach((abono, index) => {
         totalAbonado += abono.monto;
         const porcentaje = totalPagar > 0 ? (abono.monto / totalPagar) * 100 : 0;
         const saldo = totalPagar - totalAbonado;
-        
-        let infoDeposito = '-';
-        if (abono.fechaDeposito || abono.nombreDeposito) {
-            infoDeposito = `📅 ${abono.fechaDeposito || 'N/A'}<br>👤 ${abono.nombreDeposito || 'N/A'}`;
+
+        let celdaDeposito = '-';
+        if (abono.metodo === 'Efectivo' || abono.metodo === 'Cheque') {
+            celdaDeposito = `
+                <div class="deposito-cell">
+                    <label>Fecha depósito:</label>
+                    <input type="date" value="${abono.fechaDeposito || ''}" 
+                        onchange="guardarDepositoAbono(${index}, 'fecha', this.value)">
+                    <label>Quién depositó:</label>
+                    <input list="lista-nombres" value="${abono.nombreDeposito || ''}" 
+                        placeholder="Nombre..."
+                        onchange="guardarDepositoAbono(${index}, 'nombre', this.value)">
+                </div>`;
         }
 
         tbody.innerHTML += `
             <tr>
                 <td>${abono.fecha}</td>
                 <td>${abono.metodo}</td>
-                <td>$${abono.monto.toFixed(2)}</td>
+                <td>${fmt5(abono.monto)}</td>
                 <td>${porcentaje.toFixed(2)}%</td>
-                <td>$${saldo.toFixed(2)}</td>
-                <td style="font-size: 12px;">${infoDeposito}</td>
+                <td>${fmt5(saldo)}</td>
+                <td>${celdaDeposito}</td>
                 <td class="no-print"><button onclick="eliminarAbono(${index})" class="btn-clear" style="padding:2px 6px; font-size:12px;">X</button></td>
             </tr>`;
     });
@@ -535,16 +528,19 @@ window.eliminarAbono = function(index) {
     renderizarAbonosFactura();
 };
 
-// --- 7.4 Guardar y Listar Facturas ---
+// ---------- GUARDAR ----------
 window.guardarFactura = async function() {
     const tipo = document.getElementById('factura-tipo').value;
     const cliente = document.getElementById('factura-cliente-nombre').value.trim();
-    const codigoGeneracion = document.getElementById('factura-codigo-generacion').value.trim();
-    const numeroControl = document.getElementById('factura-numero-control').value.trim();
-    
+    const vendedor = document.getElementById('factura-vendedor').value.trim();
+    const multipleDTE = document.getElementById('factura-multiple-dte').checked;
+    const codigoGeneracion = multipleDTE ? document.getElementById('factura-codigo-generacion').value.trim() : '';
+    const numeroControl = multipleDTE ? document.getElementById('factura-numero-control').value.trim() : '';
+
     if (!cliente) return alert("Ingrese el nombre del cliente.");
-    if (!codigoGeneracion) return alert("Ingrese el Código de Generación.");
-    if (!numeroControl) return alert("Ingrese el Número de Control.");
+    if (!vendedor) return alert("Ingrese de quién es la venta (Vendedor).");
+    if (multipleDTE && !codigoGeneracion) return alert("Ingrese el Código de Generación (Múltiples DTEs activado).");
+    if (multipleDTE && !numeroControl) return alert("Ingrese el Número de Control (Múltiples DTEs activado).");
     if (itemsFactura.length === 0) return alert("Agregue al menos un producto.");
 
     const subtotal = itemsFactura.reduce((sum, item) => sum + item.totalSinIva, 0);
@@ -554,11 +550,11 @@ window.guardarFactura = async function() {
     const totalPagar = totalConIva - retencion;
     const totalAbonado = abonosFactura.reduce((sum, a) => sum + a.monto, 0);
     const saldo = totalPagar - totalAbonado;
-    const estado = saldo <= 0 ? 'Cancelada' : 'Pendiente';
+    const estado = saldo <= 0.00001 ? 'Cancelada' : 'Pendiente';
 
     const facturaData = {
-        userId: currentUser.uid, tipo, cliente,
-        codigoGeneracion, numeroControl,
+        userId: currentUser.uid, tipo, cliente, vendedor,
+        multipleDTE, codigoGeneracion, numeroControl,
         nit: document.getElementById('factura-cliente-nit').value,
         nrc: document.getElementById('factura-cliente-nrc').value,
         dui: document.getElementById('factura-cliente-dui').value,
@@ -586,33 +582,28 @@ window.guardarFactura = async function() {
 async function cargarListaFacturas() {
     const tbody = document.getElementById('cuerpo-tabla-facturas');
     tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;">Cargando...</td></tr>';
-    
     const q = query(collection(db, "facturas"), where("userId", "==", currentUser.uid));
     const snap = await getDocs(q);
     tbody.innerHTML = '';
+    if (snap.empty) { tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;">No hay simulaciones guardadas.</td></tr>'; return; }
 
-    if (snap.empty) {
-        tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;">No hay simulaciones guardadas.</td></tr>';
-        return;
-    }
-
-    snap.forEach(doc => {
-        const d = doc.data();
-        const badgeClass = d.estado === 'Cancelada' ? 'badge-success' : 'badge-warning';
+    snap.forEach(d => {
+        const f = d.data();
+        const badgeClass = f.estado === 'Cancelada' ? 'badge-success' : 'badge-warning';
         tbody.innerHTML += `
             <tr>
-                <td style="font-size:12px;">${d.codigoGeneracion || '-'}</td>
-                <td style="font-size:12px;">${d.numeroControl || '-'}</td>
-                <td>${d.cliente}</td>
-                <td>${d.tipo}</td>
-                <td>$${d.totalPagar.toFixed(2)}</td>
-                <td>$${d.totalAbonado.toFixed(2)}</td>
-                <td>$${d.saldo.toFixed(2)}</td>
-                <td><span class="badge ${badgeClass}">${d.estado}</span></td>
+                <td style="font-size:12px;">${f.codigoGeneracion || '-'}</td>
+                <td style="font-size:12px;">${f.numeroControl || '-'}</td>
+                <td>${f.cliente}</td>
+                <td>${f.vendedor || '-'}</td>
+                <td>${f.tipo}</td>
+                <td>${fmt5(f.totalPagar)}</td>
+                <td>${fmt5(f.saldo)}</td>
+                <td><span class="badge ${badgeClass}">${f.estado}</span></td>
                 <td>
-                    <button onclick="verFactura('${doc.id}')" class="btn-pdf" style="padding:4px 8px; font-size:12px;">Ver</button>
-                    <button onclick="editarFactura('${doc.id}')" class="btn-draft" style="padding:4px 8px; font-size:12px;">Editar</button>
-                    <button onclick="eliminarFactura('${doc.id}')" class="btn-clear" style="padding:4px 8px; font-size:12px;">Eliminar</button>
+                    <button onclick="verFactura('${d.id}')" class="btn-pdf" style="padding:4px 8px; font-size:12px;">Ver</button>
+                    <button onclick="editarFactura('${d.id}')" class="btn-draft" style="padding:4px 8px; font-size:12px;">Editar</button>
+                    <button onclick="eliminarFactura('${d.id}')" class="btn-clear" style="padding:4px 8px; font-size:12px;">Eliminar</button>
                 </td>
             </tr>`;
     });
@@ -622,19 +613,21 @@ window.verFactura = async function(id) {
     const docSnap = await getDoc(doc(db, "facturas", id));
     if (!docSnap.exists()) return;
     const d = docSnap.data();
-
     facturaEditandoId = id;
     itemsFactura = d.items || [];
     abonosFactura = d.abonos || [];
 
     document.getElementById('factura-tipo').value = d.tipo;
+    document.getElementById('factura-vendedor').value = d.vendedor || '';
     document.getElementById('factura-cliente-nombre').value = d.cliente;
     document.getElementById('factura-cliente-nit').value = d.nit || '';
     document.getElementById('factura-cliente-nrc').value = d.nrc || '';
     document.getElementById('factura-cliente-dui').value = d.dui || '';
     document.getElementById('factura-fecha').value = d.fecha;
+    document.getElementById('factura-multiple-dte').checked = !!d.multipleDTE;
     document.getElementById('factura-codigo-generacion').value = d.codigoGeneracion || '';
     document.getElementById('factura-numero-control').value = d.numeroControl || '';
+    document.getElementById('campos-dte').style.display = d.multipleDTE ? 'flex' : 'none';
     
     document.getElementById('formulario-factura').style.display = 'block';
     document.getElementById('lista-facturas-container').style.display = 'none';
@@ -643,7 +636,6 @@ window.verFactura = async function(id) {
     document.getElementById('modo-edicion-badge').style.display = 'inline-block';
     
     document.querySelectorAll('#formulario-factura input, #formulario-factura select, #formulario-factura button:not(.btn-clear)').forEach(el => el.disabled = true);
-
     toggleRetencion();
     renderizarItemsFactura();
     renderizarAbonosFactura();
@@ -653,19 +645,21 @@ window.editarFactura = async function(id) {
     const docSnap = await getDoc(doc(db, "facturas", id));
     if (!docSnap.exists()) return;
     const d = docSnap.data();
-
     facturaEditandoId = id;
     itemsFactura = d.items || [];
     abonosFactura = d.abonos || [];
 
     document.getElementById('factura-tipo').value = d.tipo;
+    document.getElementById('factura-vendedor').value = d.vendedor || '';
     document.getElementById('factura-cliente-nombre').value = d.cliente;
     document.getElementById('factura-cliente-nit').value = d.nit || '';
     document.getElementById('factura-cliente-nrc').value = d.nrc || '';
     document.getElementById('factura-cliente-dui').value = d.dui || '';
     document.getElementById('factura-fecha').value = d.fecha;
+    document.getElementById('factura-multiple-dte').checked = !!d.multipleDTE;
     document.getElementById('factura-codigo-generacion').value = d.codigoGeneracion || '';
     document.getElementById('factura-numero-control').value = d.numeroControl || '';
+    document.getElementById('campos-dte').style.display = d.multipleDTE ? 'flex' : 'none';
     
     document.getElementById('formulario-factura').style.display = 'block';
     document.getElementById('lista-facturas-container').style.display = 'none';
@@ -674,9 +668,7 @@ window.editarFactura = async function(id) {
     document.getElementById('modo-edicion-badge').style.display = 'inline-block';
     
     document.querySelectorAll('#formulario-factura input, #formulario-factura select, #formulario-factura button:not(.btn-clear)').forEach(el => el.disabled = false);
-
     toggleRetencion();
-    toggleCamposDeposito();
     renderizarItemsFactura();
     renderizarAbonosFactura();
 };
