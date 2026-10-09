@@ -1,13 +1,10 @@
 // ==========================================
-// 1. IMPORTACIONES DE FIREBASE
+// IMPORTACIONES
 // ==========================================
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
 import { getFirestore, doc, getDoc, setDoc, collection, addDoc, getDocs, query, where, deleteDoc, updateDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-// ==========================================
-// 2. CONFIGURACIÓN DE FIREBASE
-// ==========================================
 const firebaseConfig = {
   apiKey: "AIzaSyAHoBtvREojg4moDy3nOfzg_kVdFzZNngw",
   authDomain: "recibos-arquipor.firebaseapp.com",
@@ -21,9 +18,6 @@ const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const auth = getAuth(app);
 
-// ==========================================
-// VARIABLES GLOBALES
-// ==========================================
 let currentUser = null;
 let receiverSignature, payerSignature;
 let productosGlobal = [];
@@ -32,11 +26,10 @@ let itemsFactura = [];
 let abonosFactura = [];
 let facturaEditandoId = null;
 
-// Helper: formatear moneda con 5 decimales
 const fmt5 = (n) => '$' + (parseFloat(n) || 0).toFixed(5);
 
 // ==========================================
-// 3. AUTENTICACIÓN
+// AUTENTICACIÓN
 // ==========================================
 window.login = async function() {
     const email = document.getElementById('auth-email').value;
@@ -67,7 +60,7 @@ onAuthStateChanged(auth, (user) => {
 });
 
 // ==========================================
-// 4. NAVEGACIÓN
+// NAVEGACIÓN
 // ==========================================
 window.switchTab = function(tab) {
     document.querySelectorAll('.view-section').forEach(v => v.style.display = 'none');
@@ -83,7 +76,7 @@ window.switchTab = function(tab) {
 };
 
 // ==========================================
-// 5. INICIALIZACIÓN
+// INICIALIZACIÓN
 // ==========================================
 async function inicializarApp() {
     receiverSignature = new SmoothSignature(document.querySelector("#signature-receiver"));
@@ -96,7 +89,7 @@ async function inicializarApp() {
 }
 
 // ==========================================
-// 6. MÓDULO RECIBOS
+// RECIBOS
 // ==========================================
 async function cargarCorrelativo() {
     const docRef = doc(db, "configuracion", "correlativo");
@@ -210,7 +203,7 @@ window.descargarPDF = async function() {
 };
 
 // ==========================================
-// 7. PRODUCTOS
+// PRODUCTOS
 // ==========================================
 async function cargarProductos() {
     const q = query(collection(db, "productos"), where("userId", "==", currentUser.uid));
@@ -220,12 +213,9 @@ async function cargarProductos() {
     actualizarDatalistProductos();
     renderizarTablaProductos();
 }
-
 function actualizarDatalistProductos() {
-    const datalist = document.getElementById('lista-productos');
-    datalist.innerHTML = productosGlobal.map(p => `<option value="${p.nombre}"></option>`).join('');
+    document.getElementById('lista-productos').innerHTML = productosGlobal.map(p => `<option value="${p.nombre}"></option>`).join('');
 }
-
 function renderizarTablaProductos() {
     const tbody = document.getElementById('cuerpo-productos');
     tbody.innerHTML = '';
@@ -233,7 +223,6 @@ function renderizarTablaProductos() {
         tbody.innerHTML += `<tr><td>${p.nombre}</td><td><button onclick="eliminarProducto('${p.id}')" class="btn-clear">Eliminar</button></td></tr>`;
     });
 }
-
 window.abrirModalProductos = () => { document.getElementById('modal-productos').style.display = 'block'; cargarProductos(); };
 window.cerrarModalProductos = () => document.getElementById('modal-productos').style.display = 'none';
 
@@ -290,13 +279,12 @@ window.agregarProductoManual = async function() {
     document.getElementById('prod-nombre').value = '';
     await cargarProductos();
 };
-
 window.eliminarProducto = async function(id) {
     if (confirm("¿Eliminar producto?")) { await deleteDoc(doc(db, "productos", id)); await cargarProductos(); }
 };
 
 // ==========================================
-// 8. NOMBRES (Vendedor / Depositante)
+// NOMBRES
 // ==========================================
 async function cargarNombres() {
     const q = query(collection(db, "nombres"), where("userId", "==", currentUser.uid));
@@ -306,12 +294,9 @@ async function cargarNombres() {
     actualizarDatalistNombres();
     renderizarTablaNombres();
 }
-
 function actualizarDatalistNombres() {
-    const datalist = document.getElementById('lista-nombres');
-    datalist.innerHTML = nombresGlobal.map(n => `<option value="${n.nombre}"></option>`).join('');
+    document.getElementById('lista-nombres').innerHTML = nombresGlobal.map(n => `<option value="${n.nombre}"></option>`).join('');
 }
-
 function renderizarTablaNombres() {
     const tbody = document.getElementById('cuerpo-nombres');
     if (!tbody) return;
@@ -320,7 +305,6 @@ function renderizarTablaNombres() {
         tbody.innerHTML += `<tr><td>${n.nombre}</td><td><button onclick="eliminarNombre('${n.id}')" class="btn-clear">Eliminar</button></td></tr>`;
     });
 }
-
 window.abrirModalNombres = () => { document.getElementById('modal-nombres').style.display = 'block'; cargarNombres(); };
 window.cerrarModalNombres = () => document.getElementById('modal-nombres').style.display = 'none';
 
@@ -333,13 +317,12 @@ window.agregarNombreManual = async function() {
     document.getElementById('nombres-nombre').value = '';
     await cargarNombres();
 };
-
 window.eliminarNombre = async function(id) {
     if (confirm("¿Eliminar nombre?")) { await deleteDoc(doc(db, "nombres", id)); await cargarNombres(); }
 };
 
 // ==========================================
-// 9. FACTURAS
+// FACTURAS
 // ==========================================
 async function cargarCorrelativoFactura() {
     const docRef = doc(db, "configuracion", "correlativoFactura");
@@ -347,9 +330,27 @@ async function cargarCorrelativoFactura() {
     if (!docSnap.exists()) { await setDoc(docRef, { valor: 1 }); }
 }
 
+// 🔥 Toggle Múltiples DTEs
+// - Desmarcada: campos DTE visibles EN EL HEADER, no en los abonos
+// - Marcada: campos DTE visibles DENTRO DE CADA ABONO, no en el header
 window.toggleMultipleDTE = function() {
     const checked = document.getElementById('factura-multiple-dte').checked;
-    document.getElementById('campos-dte').style.display = checked ? 'flex' : 'none';
+    
+    // Header: ocultar si la casilla ESTÁ marcada
+    document.getElementById('campos-dte-header').style.display = checked ? 'none' : 'flex';
+    
+    // Columna DTE en tabla de abonos: mostrar si la casilla ESTÁ marcada
+    document.getElementById('th-dte-abono').style.display = checked ? '' : 'none';
+    
+    // Si se está desmarcando, limpiar los DTEs por abono para no dejar datos huérfanos
+    if (!checked) {
+        abonosFactura.forEach(a => {
+            a.codigoGeneracion = '';
+            a.numeroControl = '';
+        });
+    }
+    
+    renderizarAbonosFactura();
 };
 
 window.nuevaFactura = function() {
@@ -362,10 +363,12 @@ window.nuevaFactura = function() {
     document.getElementById('factura-cliente-nrc').value = '';
     document.getElementById('factura-cliente-dui').value = '';
     document.getElementById('factura-fecha').value = new Date().toISOString().split('T')[0];
+    // Estado por defecto: casilla DESMARCADA -> campos DTE en el header
     document.getElementById('factura-multiple-dte').checked = false;
     document.getElementById('factura-codigo-generacion').value = '';
     document.getElementById('factura-numero-control').value = '';
-    document.getElementById('campos-dte').style.display = 'none';
+    document.getElementById('campos-dte-header').style.display = 'flex';
+    document.getElementById('th-dte-abono').style.display = 'none';
     document.getElementById('buscar-producto').value = '';
     document.getElementById('modo-edicion-badge').style.display = 'none';
     document.getElementById('formulario-factura').style.display = 'block';
@@ -403,11 +406,7 @@ window.agregarItemFactura = function() {
     const totalSinIva = precioSinIva * cantidad;
 
     itemsFactura.push({
-        nombre: prod.nombre,
-        cantidad: cantidad,
-        precioConIva: precioConIva,
-        precioSinIva: precioSinIva,
-        totalSinIva: totalSinIva
+        nombre: prod.nombre, cantidad, precioConIva, precioSinIva, totalSinIva
     });
 
     document.getElementById('buscar-producto').value = '';
@@ -433,11 +432,7 @@ function renderizarItemsFactura() {
     });
     calcularTotalesFactura();
 }
-
-window.eliminarItemFactura = function(index) {
-    itemsFactura.splice(index, 1);
-    renderizarItemsFactura();
-};
+window.eliminarItemFactura = function(index) { itemsFactura.splice(index, 1); renderizarItemsFactura(); };
 
 function calcularTotalesFactura() {
     const subtotal = itemsFactura.reduce((sum, item) => sum + item.totalSinIva, 0);
@@ -461,30 +456,32 @@ window.agregarAbono = function() {
     const metodo = document.getElementById('abono-metodo').value;
     const fecha = document.getElementById('abono-fecha').value || new Date().toISOString().split('T')[0];
     const monto = parseFloat(document.getElementById('abono-monto').value);
-
     if (isNaN(monto) || monto <= 0) return alert("Ingrese un monto de abono válido.");
 
     abonosFactura.push({
         metodo, fecha, monto,
-        fechaDeposito: '',
-        nombreDeposito: ''
+        fechaDeposito: '', nombreDeposito: '',
+        codigoGeneracion: '', numeroControl: ''
     });
-
     document.getElementById('abono-monto').value = '';
     renderizarAbonosFactura();
 };
 
-// Guarda los datos del depósito en el abono correspondiente SIN re-renderizar (para no perder el foco)
 window.guardarDepositoAbono = function(index, campo, valor) {
     if (!abonosFactura[index]) return;
     if (campo === 'fecha') abonosFactura[index].fechaDeposito = valor;
     if (campo === 'nombre') abonosFactura[index].nombreDeposito = valor;
+};
+window.guardarDTEAbono = function(index, campo, valor) {
+    if (!abonosFactura[index]) return;
+    abonosFactura[index][campo] = valor;
 };
 
 function renderizarAbonosFactura() {
     const tbody = document.getElementById('cuerpo-abonos');
     tbody.innerHTML = '';
     const totalPagar = parseFloat(document.getElementById('factura-total-pagar').textContent.replace('$', '')) || 0;
+    const multipleDTE = document.getElementById('factura-multiple-dte').checked;
 
     let totalAbonado = 0;
     abonosFactura.forEach((abono, index) => {
@@ -492,18 +489,30 @@ function renderizarAbonosFactura() {
         const porcentaje = totalPagar > 0 ? (abono.monto / totalPagar) * 100 : 0;
         const saldo = totalPagar - totalAbonado;
 
+        // Columna depósito (solo para Efectivo/Cheque)
         let celdaDeposito = '-';
         if (abono.metodo === 'Efectivo' || abono.metodo === 'Cheque') {
             celdaDeposito = `
                 <div class="deposito-cell">
                     <label>Fecha depósito:</label>
-                    <input type="date" value="${abono.fechaDeposito || ''}" 
-                        onchange="guardarDepositoAbono(${index}, 'fecha', this.value)">
+                    <input type="date" value="${abono.fechaDeposito || ''}" onchange="guardarDepositoAbono(${index}, 'fecha', this.value)">
                     <label>Quién depositó:</label>
-                    <input list="lista-nombres" value="${abono.nombreDeposito || ''}" 
-                        placeholder="Nombre..."
-                        onchange="guardarDepositoAbono(${index}, 'nombre', this.value)">
+                    <input list="lista-nombres" value="${abono.nombreDeposito || ''}" placeholder="Nombre..." onchange="guardarDepositoAbono(${index}, 'nombre', this.value)">
                 </div>`;
+        }
+
+        // Columna DTE por abono (solo si Múltiples DTEs está marcado)
+        let celdaDTE = '';
+        if (multipleDTE) {
+            celdaDTE = `
+                <td>
+                    <div class="deposito-cell">
+                        <label>Cód. Generación:</label>
+                        <input type="text" value="${abono.codigoGeneracion || ''}" placeholder="ABC-..." onchange="guardarDTEAbono(${index}, 'codigoGeneracion', this.value)">
+                        <label>N° Control:</label>
+                        <input type="text" value="${abono.numeroControl || ''}" placeholder="0001-..." onchange="guardarDTEAbono(${index}, 'numeroControl', this.value)">
+                    </div>
+                </td>`;
         }
 
         tbody.innerHTML += `
@@ -514,19 +523,17 @@ function renderizarAbonosFactura() {
                 <td>${porcentaje.toFixed(2)}%</td>
                 <td>${fmt5(saldo)}</td>
                 <td>${celdaDeposito}</td>
+                ${celdaDTE}
                 <td class="no-print"><button onclick="eliminarAbono(${index})" class="btn-clear" style="padding:2px 6px; font-size:12px;">X</button></td>
             </tr>`;
     });
 
     if (abonosFactura.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; color:#999;">No hay abonos registrados</td></tr>';
+        const cols = multipleDTE ? 8 : 7;
+        tbody.innerHTML = `<tr><td colspan="${cols}" style="text-align:center; color:#999;">No hay abonos registrados</td></tr>`;
     }
 }
-
-window.eliminarAbono = function(index) {
-    abonosFactura.splice(index, 1);
-    renderizarAbonosFactura();
-};
+window.eliminarAbono = function(index) { abonosFactura.splice(index, 1); renderizarAbonosFactura(); };
 
 // ---------- GUARDAR ----------
 window.guardarFactura = async function() {
@@ -534,13 +541,26 @@ window.guardarFactura = async function() {
     const cliente = document.getElementById('factura-cliente-nombre').value.trim();
     const vendedor = document.getElementById('factura-vendedor').value.trim();
     const multipleDTE = document.getElementById('factura-multiple-dte').checked;
-    const codigoGeneracion = multipleDTE ? document.getElementById('factura-codigo-generacion').value.trim() : '';
-    const numeroControl = multipleDTE ? document.getElementById('factura-numero-control').value.trim() : '';
+
+    // Si NO hay múltiples DTEs, los campos del header son obligatorios
+    let codigoGeneracion = '';
+    let numeroControl = '';
+    if (!multipleDTE) {
+        codigoGeneracion = document.getElementById('factura-codigo-generacion').value.trim();
+        numeroControl = document.getElementById('factura-numero-control').value.trim();
+    } else {
+        // Si hay múltiples DTEs, cada abono debe tener los suyos
+        if (abonosFactura.length === 0) return alert("Con Múltiples DTEs activado, debe registrar al menos un abono con su Código de Generación y N° de Control.");
+        for (let i = 0; i < abonosFactura.length; i++) {
+            const a = abonosFactura[i];
+            if (!a.codigoGeneracion || !a.numeroControl) {
+                return alert(`El abono #${i + 1} no tiene asignado Código de Generación y/o N° de Control.`);
+            }
+        }
+    }
 
     if (!cliente) return alert("Ingrese el nombre del cliente.");
     if (!vendedor) return alert("Ingrese de quién es la venta (Vendedor).");
-    if (multipleDTE && !codigoGeneracion) return alert("Ingrese el Código de Generación (Múltiples DTEs activado).");
-    if (multipleDTE && !numeroControl) return alert("Ingrese el Número de Control (Múltiples DTEs activado).");
     if (itemsFactura.length === 0) return alert("Agregue al menos un producto.");
 
     const subtotal = itemsFactura.reduce((sum, item) => sum + item.totalSinIva, 0);
@@ -553,8 +573,8 @@ window.guardarFactura = async function() {
     const estado = saldo <= 0.00001 ? 'Cancelada' : 'Pendiente';
 
     const facturaData = {
-        userId: currentUser.uid, tipo, cliente, vendedor,
-        multipleDTE, codigoGeneracion, numeroControl,
+        userId: currentUser.uid, tipo, cliente, vendedor, multipleDTE,
+        codigoGeneracion, numeroControl,
         nit: document.getElementById('factura-cliente-nit').value,
         nrc: document.getElementById('factura-cliente-nrc').value,
         dui: document.getElementById('factura-cliente-dui').value,
@@ -590,10 +610,17 @@ async function cargarListaFacturas() {
     snap.forEach(d => {
         const f = d.data();
         const badgeClass = f.estado === 'Cancelada' ? 'badge-success' : 'badge-warning';
+        // Si es multipleDTE, mostrar un indicador; si no, mostrar el único DTE
+        let celdaCod = f.codigoGeneracion || '-';
+        let celdaNum = f.numeroControl || '-';
+        if (f.multipleDTE) {
+            celdaCod = `<i style="color:#856404;">Múltiples (${(f.abonos||[]).length})</i>`;
+            celdaNum = `<i style="color:#856404;">Por abono</i>`;
+        }
         tbody.innerHTML += `
             <tr>
-                <td style="font-size:12px;">${f.codigoGeneracion || '-'}</td>
-                <td style="font-size:12px;">${f.numeroControl || '-'}</td>
+                <td style="font-size:12px;">${celdaCod}</td>
+                <td style="font-size:12px;">${celdaNum}</td>
                 <td>${f.cliente}</td>
                 <td>${f.vendedor || '-'}</td>
                 <td>${f.tipo}</td>
@@ -627,14 +654,16 @@ window.verFactura = async function(id) {
     document.getElementById('factura-multiple-dte').checked = !!d.multipleDTE;
     document.getElementById('factura-codigo-generacion').value = d.codigoGeneracion || '';
     document.getElementById('factura-numero-control').value = d.numeroControl || '';
-    document.getElementById('campos-dte').style.display = d.multipleDTE ? 'flex' : 'none';
-    
+    // Aplicar visual según el estado de la casilla
+    document.getElementById('campos-dte-header').style.display = d.multipleDTE ? 'none' : 'flex';
+    document.getElementById('th-dte-abono').style.display = d.multipleDTE ? '' : 'none';
+
     document.getElementById('formulario-factura').style.display = 'block';
     document.getElementById('lista-facturas-container').style.display = 'none';
     document.getElementById('modo-edicion-badge').textContent = 'Modo Solo Lectura';
     document.getElementById('modo-edicion-badge').className = 'badge badge-danger';
     document.getElementById('modo-edicion-badge').style.display = 'inline-block';
-    
+
     document.querySelectorAll('#formulario-factura input, #formulario-factura select, #formulario-factura button:not(.btn-clear)').forEach(el => el.disabled = true);
     toggleRetencion();
     renderizarItemsFactura();
@@ -659,14 +688,15 @@ window.editarFactura = async function(id) {
     document.getElementById('factura-multiple-dte').checked = !!d.multipleDTE;
     document.getElementById('factura-codigo-generacion').value = d.codigoGeneracion || '';
     document.getElementById('factura-numero-control').value = d.numeroControl || '';
-    document.getElementById('campos-dte').style.display = d.multipleDTE ? 'flex' : 'none';
-    
+    document.getElementById('campos-dte-header').style.display = d.multipleDTE ? 'none' : 'flex';
+    document.getElementById('th-dte-abono').style.display = d.multipleDTE ? '' : 'none';
+
     document.getElementById('formulario-factura').style.display = 'block';
     document.getElementById('lista-facturas-container').style.display = 'none';
     document.getElementById('modo-edicion-badge').textContent = 'Modo Edición';
     document.getElementById('modo-edicion-badge').className = 'badge badge-warning';
     document.getElementById('modo-edicion-badge').style.display = 'inline-block';
-    
+
     document.querySelectorAll('#formulario-factura input, #formulario-factura select, #formulario-factura button:not(.btn-clear)').forEach(el => el.disabled = false);
     toggleRetencion();
     renderizarItemsFactura();
@@ -680,5 +710,4 @@ window.eliminarFactura = async function(id) {
     }
 };
 
-// Inicializar fecha de abono por defecto
 document.getElementById('abono-fecha').value = new Date().toISOString().split('T')[0];
