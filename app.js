@@ -446,7 +446,7 @@ function calcularTotalesFactura() {
     document.getElementById('factura-iva').textContent = fmt5(iva);
     document.getElementById('factura-total-con-iva').textContent = fmt5(totalConIva);
     document.getElementById('factura-retencion').textContent = fmt5(retencion);
-    document.getElementById('factura-total-pagar').textContent = fmt5(totalPagar);
+    document.getElementById('factura-total-pagar').textContent = '$' + totalPagar.toFixed(2);
 
     renderizarAbonosFactura();
 }
