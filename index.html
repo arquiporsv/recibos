@@ -50,6 +50,7 @@
                 <div class="control-group">
                     <button onclick="guardarBorrador()" class="btn-draft">Guardar Borrador</button>
                     <button onclick="abrirModalBorradores()" class="btn-draft">Ver Borradores</button>
+                    <button onclick="abrirModalRecibosGenerados()" class="btn-pdf">📄 Ver Recibos Generados</button>
                     <button onclick="limpiarFormulario()" class="btn-clear">Limpiar</button>
                     <button onclick="descargarPDF()" class="btn-pdf">Generar y Guardar PDF</button>
                 </div>
@@ -103,7 +104,6 @@
                 </div>
             </div>
 
-            <!-- Listado Facturas -->
             <div id="lista-facturas-container" class="receipt-container">
                 <h3>Historial de Simulaciones</h3>
                 <table class="receipt-table" id="tabla-facturas">
@@ -124,7 +124,6 @@
                 </table>
             </div>
 
-            <!-- Formulario Factura -->
             <div id="formulario-factura" style="display: none;" class="receipt-container">
                 <div class="factura-header-actions no-print">
                     <button onclick="cancelarEdicion()" class="btn-clear">Volver al Listado</button>
@@ -143,7 +142,6 @@
                                 <input type="checkbox" id="factura-multiple-dte" onchange="toggleMultipleDTE()">
                                 Múltiples DTEs
                             </label>
-                            <!-- Campos DTE del header: visibles SOLO cuando la casilla está DESMARCADA -->
                             <div id="campos-dte-header" style="display:flex; flex-direction:column; align-items:flex-end; margin-top: 10px;">
                                 <span class="rn-label">CÓDIGO DE GENERACIÓN</span>
                                 <input type="text" id="factura-codigo-generacion" placeholder="Ej: ABC-123-XYZ" class="header-input">
@@ -309,10 +307,23 @@
 
     <!-- MODAL BORRADORES -->
     <div id="modal-borradores" class="modal">
-        <div class="modal-content">
+        <div class="modal-content" style="width: 60%; max-width: 700px;">
             <span class="close" onclick="cerrarModalBorradores()">&times;</span>
             <h2>Borradores de Recibos</h2>
             <div id="lista-borradores"></div>
+        </div>
+    </div>
+
+    <!-- 🆕 MODAL RECIBOS GENERADOS -->
+    <div id="modal-recibos-generados" class="modal">
+        <div class="modal-content" style="width: 70%; max-width: 900px;">
+            <span class="close" onclick="cerrarModalRecibosGenerados()">&times;</span>
+            <h2>📄 Recibos Generados</h2>
+            <p style="font-size:12px; color:#666;">Aquí aparecen todos los recibos que ya fueron emitidos y guardados como PDF.</p>
+            <div class="control-group">
+                <input type="text" id="buscar-recibo-generado" placeholder="🔍 Buscar por nombre o número..." oninput="filtrarRecibosGenerados()" style="flex: 1;">
+            </div>
+            <div id="lista-recibos-generados"></div>
         </div>
     </div>
 
