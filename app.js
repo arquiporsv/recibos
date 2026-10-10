@@ -1,10 +1,13 @@
 // ==========================================
-// IMPORTACIONES
+// IMPORTACIONES DE FIREBASE
 // ==========================================
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
 import { getFirestore, doc, getDoc, setDoc, collection, addDoc, getDocs, query, where, deleteDoc, updateDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
+// ==========================================
+// CONFIGURACIÓN DE FIREBASE
+// ==========================================
 const firebaseConfig = {
   apiKey: "AIzaSyAHoBtvREojg4moDy3nOfzg_kVdFzZNngw",
   authDomain: "recibos-arquipor.firebaseapp.com",
@@ -18,6 +21,9 @@ const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const auth = getAuth(app);
 
+// ==========================================
+// VARIABLES GLOBALES
+// ==========================================
 let currentUser = null;
 let receiverSignature, payerSignature;
 let productosGlobal = [];
@@ -25,7 +31,7 @@ let nombresGlobal = [];
 let itemsFactura = [];
 let abonosFactura = [];
 let facturaEditandoId = null;
-let recibosGeneradosGlobal = []; // 🆕 caché de recibos generados
+let recibosGeneradosGlobal = [];
 
 const fmt5 = (n) => '$' + (parseFloat(n) || 0).toFixed(5);
 
@@ -38,12 +44,14 @@ window.login = async function() {
     try { await signInWithEmailAndPassword(auth, email, password); } 
     catch (error) { document.getElementById('auth-message').textContent = "Error: " + error.message; }
 };
+
 window.register = async function() {
     const email = document.getElementById('auth-email').value;
     const password = document.getElementById('auth-password').value;
     try { await createUserWithEmailAndPassword(auth, email, password); } 
     catch (error) { document.getElementById('auth-message').textContent = "Error: " + error.message; }
 };
+
 window.logout = function() { signOut(auth); };
 
 onAuthStateChanged(auth, (user) => {
@@ -90,14 +98,19 @@ async function inicializarApp() {
 }
 
 // ==========================================
-// RECIBOS
+// RECIBOS - CORRELATIVO
 // ==========================================
 async function cargarCorrelativo() {
     const docRef = doc(db, "configuracion", "correlativo");
     const docSnap = await getDoc(docRef);
-    if (docSnap.exists()) document.getElementById('receipt-number-value').textContent = docSnap.data().valor;
-    else { await setDoc(docRef, { valor: 47 }); document.getElementById('receipt-number-value').textContent = 47; }
+    if (docSnap.exists()) {
+        document.getElementById('receipt-number-value').textContent = docSnap.data().valor;
+    } else {
+        await setDoc(docRef, { valor: 47 });
+        document.getElementById('receipt-number-value').textContent = 47;
+    }
 }
+
 async function incrementarCorrelativo() {
     const docRef = doc(db, "configuracion", "correlativo");
     const docSnap = await getDoc(docRef);
@@ -107,13 +120,19 @@ async function incrementarCorrelativo() {
         document.getElementById('receipt-number-value').textContent = nuevo;
     }
 }
+
+// ==========================================
+// RECIBOS - PERSONAS FRECUENTES
+// ==========================================
 window.guardarPersonaFrecuente = async function() {
     const nombre = document.getElementById('nombre').value.trim();
     const dui = document.getElementById('dui').value.trim();
     if (!nombre || !dui) return alert("Ingrese Nombre y DUI.");
     await addDoc(collection(db, "personas"), { nombre, dui, userId: currentUser.uid });
-    alert("Guardado."); await cargarPersonasFrecuentes();
+    alert("Guardado.");
+    await cargarPersonasFrecuentes();
 };
+
 async function cargarPersonasFrecuentes() {
     const select = document.getElementById('personas-frecuentes');
     select.innerHTML = '<option value="">-- Seleccionar --</option>';
@@ -132,31 +151,48 @@ async function cargarPersonasFrecuentes() {
         }
     };
 }
+
+// ==========================================
+// RECIBOS - BORRADORES
+// ==========================================
 window.guardarBorrador = async function() {
     const borrador = {
-        userId: currentUser.uid, fecha: document.getElementById('fecha').value,
-        nombre: document.getElementById('nombre').value, dui: document.getElementById('dui').value,
-        concepto: document.getElementById('concepto').value, monto: document.getElementById('monto').value,
-        firmaRecibe: receiverSignature.toDataURL(), firmaPaga: payerSignature.toDataURL(),
+        userId: currentUser.uid,
+        fecha: document.getElementById('fecha').value,
+        nombre: document.getElementById('nombre').value,
+        dui: document.getElementById('dui').value,
+        concepto: document.getElementById('concepto').value,
+        monto: document.getElementById('monto').value,
+        firmaRecibe: receiverSignature.toDataURL(),
+        firmaPaga: payerSignature.toDataURL(),
         fechaGuardado: new Date().toISOString()
     };
     await addDoc(collection(db, "borradores"), borrador);
     alert("Borrador guardado.");
 };
+
 window.abrirModalBorradores = async function() {
     const modal = document.getElementById('modal-borradores');
     const lista = document.getElementById('lista-borradores');
-    lista.innerHTML = 'Cargando...'; modal.style.display = 'block';
+    lista.innerHTML = 'Cargando...';
+    modal.style.display = 'block';
     const q = query(collection(db, "borradores"), where("userId", "==", currentUser.uid));
     const snap = await getDocs(q);
     lista.innerHTML = '';
-    if (snap.empty) { lista.innerHTML = '<p style="text-align:center;color:#999;">No hay borradores guardados.</p>'; return; }
+    if (snap.empty) {
+        lista.innerHTML = '<p style="text-align:center;color:#999;">No hay borradores guardados.</p>';
+        return;
+    }
     snap.forEach(d => {
         const data = d.data();
         lista.innerHTML += `<div class="borrador-item"><span><b>${data.nombre || 'Sin nombre'}</b> - $${data.monto || '0'}</span><div><button onclick="cargarBorrador('${d.id}')" class="btn-pdf">Cargar</button><button onclick="eliminarBorrador('${d.id}')" class="btn-clear">Eliminar</button></div></div>`;
     });
 };
-window.cerrarModalBorradores = () => document.getElementById('modal-borradores').style.display = 'none';
+
+window.cerrarModalBorradores = function() {
+    document.getElementById('modal-borradores').style.display = 'none';
+};
+
 window.cargarBorrador = async function(id) {
     const docSnap = await getDoc(doc(db, "borradores", id));
     if (docSnap.exists()) {
@@ -166,46 +202,85 @@ window.cargarBorrador = async function(id) {
         document.getElementById('dui').value = d.dui || '';
         document.getElementById('concepto').value = d.concepto || '';
         document.getElementById('monto').value = d.monto || '';
-        receiverSignature.clear(); payerSignature.clear();
-        if (d.firmaRecibe) { const img = new Image(); img.onload = () => document.getElementById('signature-receiver').getContext('2d').drawImage(img,0,0); img.src = d.firmaRecibe; }
-        if (d.firmaPaga) { const img = new Image(); img.onload = () => document.getElementById('signature-payer').getContext('2d').drawImage(img,0,0); img.src = d.firmaPaga; }
+        receiverSignature.clear();
+        payerSignature.clear();
+        if (d.firmaRecibe) {
+            const img = new Image();
+            img.onload = () => document.getElementById('signature-receiver').getContext('2d').drawImage(img, 0, 0);
+            img.src = d.firmaRecibe;
+        }
+        if (d.firmaPaga) {
+            const img = new Image();
+            img.onload = () => document.getElementById('signature-payer').getContext('2d').drawImage(img, 0, 0);
+            img.src = d.firmaPaga;
+        }
         cerrarModalBorradores();
     }
 };
-window.eliminarBorrador = async (id) => { if(confirm("¿Eliminar?")) { await deleteDoc(doc(db, "borradores", id)); abrirModalBorradores(); } };
+
+window.eliminarBorrador = async function(id) {
+    if (confirm("¿Eliminar?")) {
+        await deleteDoc(doc(db, "borradores", id));
+        abrirModalBorradores();
+    }
+};
+
+// ==========================================
+// RECIBOS - LIMPIAR Y FIRMAS
+// ==========================================
 window.limpiarFormulario = function() {
     if (!confirm("¿Limpiar?")) return;
     ['fecha','nombre','dui','concepto','monto'].forEach(id => document.getElementById(id).value = '');
-    receiverSignature.clear(); payerSignature.clear();
+    receiverSignature.clear();
+    payerSignature.clear();
 };
-window.clearSignature = (t) => { if(t==='receiver') receiverSignature.clear(); if(t==='payer') payerSignature.clear(); };
 
+window.clearSignature = function(t) {
+    if (t === 'receiver') receiverSignature.clear();
+    if (t === 'payer') payerSignature.clear();
+};
+
+// ==========================================
+// RECIBOS - GENERAR Y GUARDAR PDF
+// ==========================================
 window.descargarPDF = async function() {
     const nombre = document.getElementById('nombre').value.trim();
     const monto = document.getElementById('monto').value.trim();
     if (!nombre || !monto) return alert("Complete Nombre y Monto.");
     const elemento = document.getElementById('receipt-container');
     const correlativo = document.getElementById('receipt-number-value').textContent;
-    const opciones = { margin: 0, filename: `Recibo_${correlativo}_${nombre.replace(/\s+/g, '_')}.pdf`, image: { type: 'jpeg', quality: 0.98 }, html2canvas: { scale: 2 }, jsPDF: { unit: 'mm', format: 'letter', orientation: 'portrait' } };
+    const opciones = {
+        margin: 0,
+        filename: `Recibo_${correlativo}_${nombre.replace(/\s+/g, '_')}.pdf`,
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: { scale: 2 },
+        jsPDF: { unit: 'mm', format: 'letter', orientation: 'portrait' }
+    };
     document.querySelectorAll('.clear-sig').forEach(b => b.style.display = 'none');
     try {
         const pdfWorker = html2pdf().set(opciones).from(elemento);
         const pdfDataUri = await pdfWorker.toPdf().get('pdf').then(pdf => pdf.output('datauristring'));
         await pdfWorker.save();
         await addDoc(collection(db, "recibos_pdfs"), {
-            userId: currentUser.uid, correlativo, nombre, monto,
+            userId: currentUser.uid,
+            correlativo: correlativo,
+            nombre: nombre,
+            monto: monto,
             fecha: document.getElementById('fecha').value || new Date().toISOString().split('T')[0],
             pdfBase64: pdfDataUri
         });
         await incrementarCorrelativo();
         limpiarFormulario();
         alert("PDF generado, descargado y guardado en la nube exitosamente.");
-    } catch (e) { alert("Error: " + e.message); } 
-    finally { document.querySelectorAll('.clear-sig').forEach(b => b.style.display = 'block'); }
+    } catch (e) {
+        alert("Error: " + e.message);
+    } finally {
+        document.querySelectorAll('.clear-sig').forEach(b => b.style.display = 'block');
+    }
 };
 
 // ==========================================
-// 🆕 VISOR DE RECIBOS GENERADOS
+// VISOR DE RECIBOS GENERADOS
 // ==========================================
 window.abrirModalRecibosGenerados = async function() {
     const modal = document.getElementById('modal-recibos-generados');
@@ -217,23 +292,25 @@ window.abrirModalRecibosGenerados = async function() {
     try {
         const q = query(collection(db, "recibos_pdfs"), where("userId", "==", currentUser.uid));
         const snap = await getDocs(q);
-        
         recibosGeneradosGlobal = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-        // Ordenar por correlativo descendente (el más reciente primero)
         recibosGeneradosGlobal.sort((a, b) => (parseInt(b.correlativo) || 0) - (parseInt(a.correlativo) || 0));
-        
         renderizarRecibosGenerados(recibosGeneradosGlobal);
     } catch (e) {
         lista.innerHTML = '<p style="color:red;">Error al cargar: ' + e.message + '</p>';
     }
 };
 
-window.cerrarModalRecibosGenerados = () => document.getElementById('modal-recibos-generados').style.display = 'none';
+window.cerrarModalRecibosGenerados = function() {
+    document.getElementById('modal-recibos-generados').style.display = 'none';
+};
 
 window.filtrarRecibosGenerados = function() {
     const filtro = document.getElementById('buscar-recibo-generado').value.trim().toLowerCase();
-    if (!filtro) { renderizarRecibosGenerados(recibosGeneradosGlobal); return; }
-    const filtrados = recibosGeneradosGlobal.filter(r => 
+    if (!filtro) {
+        renderizarRecibosGenerados(recibosGeneradosGlobal);
+        return;
+    }
+    const filtrados = recibosGeneradosGlobal.filter(r =>
         (r.nombre || '').toLowerCase().includes(filtro) ||
         (r.correlativo || '').toString().includes(filtro) ||
         (r.monto || '').toString().includes(filtro)
@@ -247,7 +324,6 @@ function renderizarRecibosGenerados(lista) {
         contenedor.innerHTML = '<p style="text-align:center; color:#999;">No hay recibos generados que mostrar.</p>';
         return;
     }
-
     contenedor.innerHTML = lista.map(r => `
         <div class="recibo-generado-item">
             <div class="recibo-generado-info">
@@ -265,8 +341,6 @@ function renderizarRecibosGenerados(lista) {
 window.descargarReciboGuardado = function(id) {
     const recibo = recibosGeneradosGlobal.find(r => r.id === id);
     if (!recibo || !recibo.pdfBase64) return alert("No se encontró el PDF de este recibo.");
-
-    // Crear un enlace temporal con el Base64 y forzar la descarga
     const link = document.createElement('a');
     link.href = recibo.pdfBase64;
     link.download = `Recibo_${recibo.correlativo || 'X'}_${(recibo.nombre || 'cliente').replace(/\s+/g, '_')}.pdf`;
@@ -279,7 +353,6 @@ window.eliminarReciboGuardado = async function(id) {
     if (!confirm("¿Eliminar este recibo definitivamente? Esta acción no se puede deshacer.")) return;
     try {
         await deleteDoc(doc(db, "recibos_pdfs", id));
-        // Quitar de la caché local y volver a renderizar
         recibosGeneradosGlobal = recibosGeneradosGlobal.filter(r => r.id !== id);
         filtrarRecibosGenerados();
     } catch (e) {
@@ -298,9 +371,11 @@ async function cargarProductos() {
     actualizarDatalistProductos();
     renderizarTablaProductos();
 }
+
 function actualizarDatalistProductos() {
     document.getElementById('lista-productos').innerHTML = productosGlobal.map(p => `<option value="${p.nombre}"></option>`).join('');
 }
+
 function renderizarTablaProductos() {
     const tbody = document.getElementById('cuerpo-productos');
     tbody.innerHTML = '';
@@ -308,8 +383,15 @@ function renderizarTablaProductos() {
         tbody.innerHTML += `<tr><td>${p.nombre}</td><td><button onclick="eliminarProducto('${p.id}')" class="btn-clear">Eliminar</button></td></tr>`;
     });
 }
-window.abrirModalProductos = () => { document.getElementById('modal-productos').style.display = 'block'; cargarProductos(); };
-window.cerrarModalProductos = () => document.getElementById('modal-productos').style.display = 'none';
+
+window.abrirModalProductos = function() {
+    document.getElementById('modal-productos').style.display = 'block';
+    cargarProductos();
+};
+
+window.cerrarModalProductos = function() {
+    document.getElementById('modal-productos').style.display = 'none';
+};
 
 window.limpiarDuplicados = async function() {
     if (!confirm("¿Eliminar todos los productos duplicados? Se conservará el primer registro.")) return;
@@ -317,8 +399,12 @@ window.limpiarDuplicados = async function() {
     let eliminados = 0;
     for (const p of productosGlobal) {
         const clave = p.nombre.trim().toLowerCase();
-        if (vistos.has(clave)) { await deleteDoc(doc(db, "productos", p.id)); eliminados++; }
-        else vistos.add(clave);
+        if (vistos.has(clave)) {
+            await deleteDoc(doc(db, "productos", p.id));
+            eliminados++;
+        } else {
+            vistos.add(clave);
+        }
     }
     alert(`Se eliminaron ${eliminados} productos duplicados.`);
     await cargarProductos();
@@ -342,7 +428,10 @@ window.importarExcel = function() {
             if (nombreRaw) {
                 const nombre = String(nombreRaw).trim();
                 const clave = nombre.toLowerCase();
-                if (existentes.has(clave) || procesadosEnEsteExcel.has(clave)) { omitidos++; continue; }
+                if (existentes.has(clave) || procesadosEnEsteExcel.has(clave)) {
+                    omitidos++;
+                    continue;
+                }
                 await addDoc(collection(db, "productos"), { userId: currentUser.uid, nombre });
                 procesadosEnEsteExcel.add(clave);
                 importados++;
@@ -364,12 +453,16 @@ window.agregarProductoManual = async function() {
     document.getElementById('prod-nombre').value = '';
     await cargarProductos();
 };
+
 window.eliminarProducto = async function(id) {
-    if (confirm("¿Eliminar producto?")) { await deleteDoc(doc(db, "productos", id)); await cargarProductos(); }
+    if (confirm("¿Eliminar producto?")) {
+        await deleteDoc(doc(db, "productos", id));
+        await cargarProductos();
+    }
 };
 
 // ==========================================
-// NOMBRES
+// NOMBRES (Vendedor / Depositante)
 // ==========================================
 async function cargarNombres() {
     const q = query(collection(db, "nombres"), where("userId", "==", currentUser.uid));
@@ -379,9 +472,11 @@ async function cargarNombres() {
     actualizarDatalistNombres();
     renderizarTablaNombres();
 }
+
 function actualizarDatalistNombres() {
     document.getElementById('lista-nombres').innerHTML = nombresGlobal.map(n => `<option value="${n.nombre}"></option>`).join('');
 }
+
 function renderizarTablaNombres() {
     const tbody = document.getElementById('cuerpo-nombres');
     if (!tbody) return;
@@ -390,8 +485,15 @@ function renderizarTablaNombres() {
         tbody.innerHTML += `<tr><td>${n.nombre}</td><td><button onclick="eliminarNombre('${n.id}')" class="btn-clear">Eliminar</button></td></tr>`;
     });
 }
-window.abrirModalNombres = () => { document.getElementById('modal-nombres').style.display = 'block'; cargarNombres(); };
-window.cerrarModalNombres = () => document.getElementById('modal-nombres').style.display = 'none';
+
+window.abrirModalNombres = function() {
+    document.getElementById('modal-nombres').style.display = 'block';
+    cargarNombres();
+};
+
+window.cerrarModalNombres = function() {
+    document.getElementById('modal-nombres').style.display = 'none';
+};
 
 window.agregarNombreManual = async function() {
     const nombre = document.getElementById('nombres-nombre').value.trim();
@@ -402,19 +504,28 @@ window.agregarNombreManual = async function() {
     document.getElementById('nombres-nombre').value = '';
     await cargarNombres();
 };
+
 window.eliminarNombre = async function(id) {
-    if (confirm("¿Eliminar nombre?")) { await deleteDoc(doc(db, "nombres", id)); await cargarNombres(); }
+    if (confirm("¿Eliminar nombre?")) {
+        await deleteDoc(doc(db, "nombres", id));
+        await cargarNombres();
+    }
 };
 
 // ==========================================
-// FACTURAS
+// FACTURAS - CORRELATIVO
 // ==========================================
 async function cargarCorrelativoFactura() {
     const docRef = doc(db, "configuracion", "correlativoFactura");
     const docSnap = await getDoc(docRef);
-    if (!docSnap.exists()) { await setDoc(docRef, { valor: 1 }); }
+    if (!docSnap.exists()) {
+        await setDoc(docRef, { valor: 1 });
+    }
 }
 
+// ==========================================
+// FACTURAS - TOGGLE MÚLTIPLES DTES
+// ==========================================
 window.toggleMultipleDTE = function() {
     const checked = document.getElementById('factura-multiple-dte').checked;
     document.getElementById('campos-dte-header').style.display = checked ? 'none' : 'flex';
@@ -428,9 +539,13 @@ window.toggleMultipleDTE = function() {
     renderizarAbonosFactura();
 };
 
+// ==========================================
+// FACTURAS - NUEVA
+// ==========================================
 window.nuevaFactura = function() {
     facturaEditandoId = null;
-    itemsFactura = []; abonosFactura = [];
+    itemsFactura = [];
+    abonosFactura = [];
     document.getElementById('factura-tipo').value = 'Consumidor Final';
     document.getElementById('factura-vendedor').value = '';
     document.getElementById('factura-cliente-nombre').value = '';
@@ -464,6 +579,9 @@ function toggleRetencion() {
     calcularTotalesFactura();
 }
 
+// ==========================================
+// FACTURAS - ITEMS
+// ==========================================
 window.agregarItemFactura = function() {
     const nombreProd = document.getElementById('buscar-producto').value.trim();
     const cantidad = parseFloat(document.getElementById('cantidad-producto').value);
@@ -480,7 +598,11 @@ window.agregarItemFactura = function() {
     const totalSinIva = precioSinIva * cantidad;
 
     itemsFactura.push({
-        nombre: prod.nombre, cantidad, precioConIva, precioSinIva, totalSinIva
+        nombre: prod.nombre,
+        cantidad: cantidad,
+        precioConIva: precioConIva,
+        precioSinIva: precioSinIva,
+        totalSinIva: totalSinIva
     });
 
     document.getElementById('buscar-producto').value = '';
@@ -506,8 +628,15 @@ function renderizarItemsFactura() {
     });
     calcularTotalesFactura();
 }
-window.eliminarItemFactura = function(index) { itemsFactura.splice(index, 1); renderizarItemsFactura(); };
 
+window.eliminarItemFactura = function(index) {
+    itemsFactura.splice(index, 1);
+    renderizarItemsFactura();
+};
+
+// ==========================================
+// FACTURAS - CÁLCULOS
+// ==========================================
 function calcularTotalesFactura() {
     const subtotal = itemsFactura.reduce((sum, item) => sum + item.totalSinIva, 0);
     const iva = subtotal * 0.13;
@@ -525,7 +654,9 @@ function calcularTotalesFactura() {
     renderizarAbonosFactura();
 }
 
-// ---------- ABONOS ----------
+// ==========================================
+// FACTURAS - ABONOS
+// ==========================================
 window.agregarAbono = function() {
     const metodo = document.getElementById('abono-metodo').value;
     const fecha = document.getElementById('abono-fecha').value || new Date().toISOString().split('T')[0];
@@ -533,9 +664,13 @@ window.agregarAbono = function() {
     if (isNaN(monto) || monto <= 0) return alert("Ingrese un monto de abono válido.");
 
     abonosFactura.push({
-        metodo, fecha, monto,
-        fechaDeposito: '', nombreDeposito: '',
-        codigoGeneracion: '', numeroControl: ''
+        metodo: metodo,
+        fecha: fecha,
+        monto: monto,
+        fechaDeposito: '',
+        nombreDeposito: '',
+        codigoGeneracion: '',
+        numeroControl: ''
     });
     document.getElementById('abono-monto').value = '';
     renderizarAbonosFactura();
@@ -546,6 +681,7 @@ window.guardarDepositoAbono = function(index, campo, valor) {
     if (campo === 'fecha') abonosFactura[index].fechaDeposito = valor;
     if (campo === 'nombre') abonosFactura[index].nombreDeposito = valor;
 };
+
 window.guardarDTEAbono = function(index, campo, valor) {
     if (!abonosFactura[index]) return;
     abonosFactura[index][campo] = valor;
@@ -605,9 +741,15 @@ function renderizarAbonosFactura() {
         tbody.innerHTML = `<tr><td colspan="${cols}" style="text-align:center; color:#999;">No hay abonos registrados</td></tr>`;
     }
 }
-window.eliminarAbono = function(index) { abonosFactura.splice(index, 1); renderizarAbonosFactura(); };
 
-// ---------- GUARDAR ----------
+window.eliminarAbono = function(index) {
+    abonosFactura.splice(index, 1);
+    renderizarAbonosFactura();
+};
+
+// ==========================================
+// FACTURAS - GUARDAR
+// ==========================================
 window.guardarFactura = async function() {
     const tipo = document.getElementById('factura-tipo').value;
     const cliente = document.getElementById('factura-cliente-nombre').value.trim();
@@ -643,15 +785,28 @@ window.guardarFactura = async function() {
     const estado = saldo <= 0.00001 ? 'Cancelada' : 'Pendiente';
 
     const facturaData = {
-        userId: currentUser.uid, tipo, cliente, vendedor, multipleDTE,
-        codigoGeneracion, numeroControl,
+        userId: currentUser.uid,
+        tipo: tipo,
+        cliente: cliente,
+        vendedor: vendedor,
+        multipleDTE: multipleDTE,
+        codigoGeneracion: codigoGeneracion,
+        numeroControl: numeroControl,
         nit: document.getElementById('factura-cliente-nit').value,
         nrc: document.getElementById('factura-cliente-nrc').value,
         dui: document.getElementById('factura-cliente-dui').value,
         fecha: document.getElementById('factura-fecha').value,
-        items: itemsFactura, abonos: abonosFactura,
-        subtotal, iva, totalConIva, retencion, totalPagar,
-        totalAbonado, saldo, estado, fechaGuardado: new Date().toISOString()
+        items: itemsFactura,
+        abonos: abonosFactura,
+        subtotal: subtotal,
+        iva: iva,
+        totalConIva: totalConIva,
+        retencion: retencion,
+        totalPagar: totalPagar,
+        totalAbonado: totalAbonado,
+        saldo: saldo,
+        estado: estado,
+        fechaGuardado: new Date().toISOString()
     };
 
     if (facturaEditandoId) {
@@ -669,13 +824,19 @@ window.guardarFactura = async function() {
     cancelarEdicion();
 };
 
+// ==========================================
+// FACTURAS - LISTAR
+// ==========================================
 async function cargarListaFacturas() {
     const tbody = document.getElementById('cuerpo-tabla-facturas');
     tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;">Cargando...</td></tr>';
     const q = query(collection(db, "facturas"), where("userId", "==", currentUser.uid));
     const snap = await getDocs(q);
     tbody.innerHTML = '';
-    if (snap.empty) { tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;">No hay simulaciones guardadas.</td></tr>'; return; }
+    if (snap.empty) {
+        tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;">No hay simulaciones guardadas.</td></tr>';
+        return;
+    }
 
     snap.forEach(d => {
         const f = d.data();
@@ -683,7 +844,7 @@ async function cargarListaFacturas() {
         let celdaCod = f.codigoGeneracion || '-';
         let celdaNum = f.numeroControl || '-';
         if (f.multipleDTE) {
-            celdaCod = `<i style="color:#856404;">Múltiples (${(f.abonos||[]).length})</i>`;
+            celdaCod = `<i style="color:#856404;">Múltiples (${(f.abonos || []).length})</i>`;
             celdaNum = `<i style="color:#856404;">Por abono</i>`;
         }
         tbody.innerHTML += `
@@ -705,6 +866,9 @@ async function cargarListaFacturas() {
     });
 }
 
+// ==========================================
+// FACTURAS - VER
+// ==========================================
 window.verFactura = async function(id) {
     const docSnap = await getDoc(doc(db, "facturas", id));
     if (!docSnap.exists()) return;
@@ -738,6 +902,9 @@ window.verFactura = async function(id) {
     renderizarAbonosFactura();
 };
 
+// ==========================================
+// FACTURAS - EDITAR
+// ==========================================
 window.editarFactura = async function(id) {
     const docSnap = await getDoc(doc(db, "facturas", id));
     if (!docSnap.exists()) return;
@@ -771,6 +938,9 @@ window.editarFactura = async function(id) {
     renderizarAbonosFactura();
 };
 
+// ==========================================
+// FACTURAS - ELIMINAR
+// ==========================================
 window.eliminarFactura = async function(id) {
     if (confirm("¿Eliminar esta simulación de factura permanentemente?")) {
         await deleteDoc(doc(db, "facturas", id));
@@ -778,4 +948,7 @@ window.eliminarFactura = async function(id) {
     }
 };
 
+// ==========================================
+// INICIALIZAR FECHA DE ABONO
+// ==========================================
 document.getElementById('abono-fecha').value = new Date().toISOString().split('T')[0];
