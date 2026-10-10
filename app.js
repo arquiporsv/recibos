@@ -25,6 +25,7 @@ let nombresGlobal = [];
 let itemsFactura = [];
 let abonosFactura = [];
 let facturaEditandoId = null;
+let recibosGeneradosGlobal = []; // 🆕 caché de recibos generados
 
 const fmt5 = (n) => '$' + (parseFloat(n) || 0).toFixed(5);
 
@@ -149,6 +150,7 @@ window.abrirModalBorradores = async function() {
     const q = query(collection(db, "borradores"), where("userId", "==", currentUser.uid));
     const snap = await getDocs(q);
     lista.innerHTML = '';
+    if (snap.empty) { lista.innerHTML = '<p style="text-align:center;color:#999;">No hay borradores guardados.</p>'; return; }
     snap.forEach(d => {
         const data = d.data();
         lista.innerHTML += `<div class="borrador-item"><span><b>${data.nombre || 'Sin nombre'}</b> - $${data.monto || '0'}</span><div><button onclick="cargarBorrador('${d.id}')" class="btn-pdf">Cargar</button><button onclick="eliminarBorrador('${d.id}')" class="btn-clear">Eliminar</button></div></div>`;
@@ -200,6 +202,89 @@ window.descargarPDF = async function() {
         alert("PDF generado, descargado y guardado en la nube exitosamente.");
     } catch (e) { alert("Error: " + e.message); } 
     finally { document.querySelectorAll('.clear-sig').forEach(b => b.style.display = 'block'); }
+};
+
+// ==========================================
+// 🆕 VISOR DE RECIBOS GENERADOS
+// ==========================================
+window.abrirModalRecibosGenerados = async function() {
+    const modal = document.getElementById('modal-recibos-generados');
+    const lista = document.getElementById('lista-recibos-generados');
+    lista.innerHTML = '<p style="text-align:center; color:#666;">Cargando...</p>';
+    modal.style.display = 'block';
+    document.getElementById('buscar-recibo-generado').value = '';
+
+    try {
+        const q = query(collection(db, "recibos_pdfs"), where("userId", "==", currentUser.uid));
+        const snap = await getDocs(q);
+        
+        recibosGeneradosGlobal = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        // Ordenar por correlativo descendente (el más reciente primero)
+        recibosGeneradosGlobal.sort((a, b) => (parseInt(b.correlativo) || 0) - (parseInt(a.correlativo) || 0));
+        
+        renderizarRecibosGenerados(recibosGeneradosGlobal);
+    } catch (e) {
+        lista.innerHTML = '<p style="color:red;">Error al cargar: ' + e.message + '</p>';
+    }
+};
+
+window.cerrarModalRecibosGenerados = () => document.getElementById('modal-recibos-generados').style.display = 'none';
+
+window.filtrarRecibosGenerados = function() {
+    const filtro = document.getElementById('buscar-recibo-generado').value.trim().toLowerCase();
+    if (!filtro) { renderizarRecibosGenerados(recibosGeneradosGlobal); return; }
+    const filtrados = recibosGeneradosGlobal.filter(r => 
+        (r.nombre || '').toLowerCase().includes(filtro) ||
+        (r.correlativo || '').toString().includes(filtro) ||
+        (r.monto || '').toString().includes(filtro)
+    );
+    renderizarRecibosGenerados(filtrados);
+};
+
+function renderizarRecibosGenerados(lista) {
+    const contenedor = document.getElementById('lista-recibos-generados');
+    if (!lista || lista.length === 0) {
+        contenedor.innerHTML = '<p style="text-align:center; color:#999;">No hay recibos generados que mostrar.</p>';
+        return;
+    }
+
+    contenedor.innerHTML = lista.map(r => `
+        <div class="recibo-generado-item">
+            <div class="recibo-generado-info">
+                <span class="rg-titulo">Recibo #${r.correlativo || '?'} — ${r.nombre || 'Sin nombre'}</span>
+                <span class="rg-detalle">💰 Monto: $${parseFloat(r.monto || 0).toFixed(2)}  |  📅 Fecha: ${r.fecha || 'N/A'}</span>
+            </div>
+            <div class="recibo-generado-acciones">
+                <button onclick="descargarReciboGuardado('${r.id}')" class="btn-pdf">⬇️ Descargar</button>
+                <button onclick="eliminarReciboGuardado('${r.id}')" class="btn-clear">🗑️ Eliminar</button>
+            </div>
+        </div>
+    `).join('');
+}
+
+window.descargarReciboGuardado = function(id) {
+    const recibo = recibosGeneradosGlobal.find(r => r.id === id);
+    if (!recibo || !recibo.pdfBase64) return alert("No se encontró el PDF de este recibo.");
+
+    // Crear un enlace temporal con el Base64 y forzar la descarga
+    const link = document.createElement('a');
+    link.href = recibo.pdfBase64;
+    link.download = `Recibo_${recibo.correlativo || 'X'}_${(recibo.nombre || 'cliente').replace(/\s+/g, '_')}.pdf`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+};
+
+window.eliminarReciboGuardado = async function(id) {
+    if (!confirm("¿Eliminar este recibo definitivamente? Esta acción no se puede deshacer.")) return;
+    try {
+        await deleteDoc(doc(db, "recibos_pdfs", id));
+        // Quitar de la caché local y volver a renderizar
+        recibosGeneradosGlobal = recibosGeneradosGlobal.filter(r => r.id !== id);
+        filtrarRecibosGenerados();
+    } catch (e) {
+        alert("Error al eliminar: " + e.message);
+    }
 };
 
 // ==========================================
@@ -330,26 +415,16 @@ async function cargarCorrelativoFactura() {
     if (!docSnap.exists()) { await setDoc(docRef, { valor: 1 }); }
 }
 
-// 🔥 Toggle Múltiples DTEs
-// - Desmarcada: campos DTE visibles EN EL HEADER, no en los abonos
-// - Marcada: campos DTE visibles DENTRO DE CADA ABONO, no en el header
 window.toggleMultipleDTE = function() {
     const checked = document.getElementById('factura-multiple-dte').checked;
-    
-    // Header: ocultar si la casilla ESTÁ marcada
     document.getElementById('campos-dte-header').style.display = checked ? 'none' : 'flex';
-    
-    // Columna DTE en tabla de abonos: mostrar si la casilla ESTÁ marcada
     document.getElementById('th-dte-abono').style.display = checked ? '' : 'none';
-    
-    // Si se está desmarcando, limpiar los DTEs por abono para no dejar datos huérfanos
     if (!checked) {
         abonosFactura.forEach(a => {
             a.codigoGeneracion = '';
             a.numeroControl = '';
         });
     }
-    
     renderizarAbonosFactura();
 };
 
@@ -363,7 +438,6 @@ window.nuevaFactura = function() {
     document.getElementById('factura-cliente-nrc').value = '';
     document.getElementById('factura-cliente-dui').value = '';
     document.getElementById('factura-fecha').value = new Date().toISOString().split('T')[0];
-    // Estado por defecto: casilla DESMARCADA -> campos DTE en el header
     document.getElementById('factura-multiple-dte').checked = false;
     document.getElementById('factura-codigo-generacion').value = '';
     document.getElementById('factura-numero-control').value = '';
@@ -489,7 +563,6 @@ function renderizarAbonosFactura() {
         const porcentaje = totalPagar > 0 ? (abono.monto / totalPagar) * 100 : 0;
         const saldo = totalPagar - totalAbonado;
 
-        // Columna depósito (solo para Efectivo/Cheque)
         let celdaDeposito = '-';
         if (abono.metodo === 'Efectivo' || abono.metodo === 'Cheque') {
             celdaDeposito = `
@@ -501,7 +574,6 @@ function renderizarAbonosFactura() {
                 </div>`;
         }
 
-        // Columna DTE por abono (solo si Múltiples DTEs está marcado)
         let celdaDTE = '';
         if (multipleDTE) {
             celdaDTE = `
@@ -542,14 +614,12 @@ window.guardarFactura = async function() {
     const vendedor = document.getElementById('factura-vendedor').value.trim();
     const multipleDTE = document.getElementById('factura-multiple-dte').checked;
 
-    // Si NO hay múltiples DTEs, los campos del header son obligatorios
     let codigoGeneracion = '';
     let numeroControl = '';
     if (!multipleDTE) {
         codigoGeneracion = document.getElementById('factura-codigo-generacion').value.trim();
         numeroControl = document.getElementById('factura-numero-control').value.trim();
     } else {
-        // Si hay múltiples DTEs, cada abono debe tener los suyos
         if (abonosFactura.length === 0) return alert("Con Múltiples DTEs activado, debe registrar al menos un abono con su Código de Generación y N° de Control.");
         for (let i = 0; i < abonosFactura.length; i++) {
             const a = abonosFactura[i];
@@ -610,7 +680,6 @@ async function cargarListaFacturas() {
     snap.forEach(d => {
         const f = d.data();
         const badgeClass = f.estado === 'Cancelada' ? 'badge-success' : 'badge-warning';
-        // Si es multipleDTE, mostrar un indicador; si no, mostrar el único DTE
         let celdaCod = f.codigoGeneracion || '-';
         let celdaNum = f.numeroControl || '-';
         if (f.multipleDTE) {
@@ -654,7 +723,6 @@ window.verFactura = async function(id) {
     document.getElementById('factura-multiple-dte').checked = !!d.multipleDTE;
     document.getElementById('factura-codigo-generacion').value = d.codigoGeneracion || '';
     document.getElementById('factura-numero-control').value = d.numeroControl || '';
-    // Aplicar visual según el estado de la casilla
     document.getElementById('campos-dte-header').style.display = d.multipleDTE ? 'none' : 'flex';
     document.getElementById('th-dte-abono').style.display = d.multipleDTE ? '' : 'none';
 
