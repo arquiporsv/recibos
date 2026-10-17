@@ -92,7 +92,7 @@ window.switchTab = function(tab) {
 async function inicializarApp() {
     receiverSignature = new SmoothSignature(document.querySelector("#signature-receiver"));
     payerSignature = new SmoothSignature(document.querySelector("#signature-payer"));
-    await setNextCorrelativo(); // <-- Ahora llama a la nueva función
+    await setNextCorrelativo(); 
     await cargarPersonasFrecuentes();
     await cargarProductos();
     await cargarNombres();
@@ -100,21 +100,31 @@ async function inicializarApp() {
 }
 
 // ==========================================
-// RECIBOS - CORRELATIVO
+// RECIBOS - CORRELATIVO AUTOMÁTICO
 // ==========================================
-// <-- NUEVA FUNCIÓN: Trae el correlativo automático de la BD
+// Esta función busca el número más alto en los recibos generados y le suma 1.
 async function setNextCorrelativo() {
     try {
-        const docRef = doc(db, "configuracion", "correlativo");
-        const docSnap = await getDoc(docRef);
-        if (docSnap.exists()) {
-            document.getElementById('receipt-number-value').value = docSnap.data().valor;
-        } else {
-            await setDoc(docRef, { valor: 47 });
-            document.getElementById('receipt-number-value').value = 47;
-        }
+        const q = query(collection(db, "recibos_pdfs"), where("userId", "==", currentUser.uid));
+        const snap = await getDocs(q);
+        
+        let maxCorrelativo = 46; // Valor inicial por defecto (para que el primero sea 47)
+        
+        snap.forEach(doc => {
+            const num = parseInt(doc.data().correlativo);
+            if (!isNaN(num) && num > maxCorrelativo) {
+                maxCorrelativo = num;
+            }
+        });
+        
+        const nextNumber = maxCorrelativo + 1;
+        document.getElementById('receipt-number-value').value = nextNumber;
+        
+        // Sincronizamos el contador de configuración por si acaso
+        await setDoc(doc(db, "configuracion", "correlativo"), { valor: nextNumber });
+        
     } catch (e) {
-        console.error("Error al cargar correlativo:", e);
+        console.error("Error al calcular el próximo correlativo:", e);
     }
 }
 
@@ -241,7 +251,6 @@ window.eliminarBorrador = async function(id) {
 // ==========================================
 // RECIBOS - LIMPIAR Y FIRMAS
 // ==========================================
-// <-- HECHO ASÍNCRONO para poder esperar a traer el nuevo correlativo
 window.limpiarFormulario = async function(skipConfirm = false) {
     if (!skipConfirm && !confirm("¿Limpiar formulario?")) return;
     ['fecha','nombre','dui','concepto','monto'].forEach(id => document.getElementById(id).value = '');
@@ -251,7 +260,7 @@ window.limpiarFormulario = async function(skipConfirm = false) {
     currentReceiptId = null; 
     document.getElementById('btn-generar-pdf').textContent = 'Generar y Guardar PDF'; 
     
-    // <-- Traer el próximo correlativo automáticamente
+    // Traer el próximo correlativo automáticamente basado en el último creado
     await setNextCorrelativo();
 };
 
@@ -271,6 +280,7 @@ window.descargarPDF = async function() {
     if (!nombre || !monto) return alert("Complete Nombre y Monto.");
     if (!correlativo) return alert("Ingrese un número de recibo.");
 
+    // VALIDACIÓN: Verificar que el correlativo no exista ya, EXCEPTO si estamos editando ESE MISMO recibo
     const qCheck = query(collection(db, "recibos_pdfs"), where("userId", "==", currentUser.uid), where("correlativo", "==", correlativo));
     const snapCheck = await getDocs(qCheck);
     
@@ -325,16 +335,6 @@ window.descargarPDF = async function() {
         } else {
             payload.fechaCreacion = new Date().toISOString();
             await addDoc(collection(db, "recibos_pdfs"), payload);
-            
-            const configRef = doc(db, "configuracion", "correlativo");
-            const configSnap = await getDoc(configRef);
-            let currentConfigVal = configSnap.exists() ? configSnap.data().valor : 47;
-            let num = parseInt(correlativo);
-            
-            if (num >= currentConfigVal) {
-                // Solo actualizamos la BD, el input se actualiza en limpiarFormulario()
-                await setDoc(configRef, { valor: num + 1 });
-            }
             alert("PDF generado y guardado exitosamente.");
         }
 
@@ -343,7 +343,7 @@ window.descargarPDF = async function() {
             currentBorradorId = null;
         }
 
-        // <-- await para asegurar que trae el nuevo correlativo antes de terminar
+        // Al limpiar el formulario, automáticamente buscará el nuevo correlativo más alto
         await limpiarFormulario(true); 
 
     } catch (e) {
