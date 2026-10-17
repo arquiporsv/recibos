@@ -48,7 +48,7 @@
                     <button onclick="guardarPersonaFrecuente()">Guardar Persona</button>
                 </div>
                 <div class="control-group">
-                    <button onclick="guardarBorrador()" class="btn-draft">Guardar Borrador</button>
+                    <button onclick="guardarBorrador()" class="btn-draft">Guardar / Actualizar Borrador</button>
                     <button onclick="abrirModalBorradores()" class="btn-draft">Ver Borradores</button>
                     <button onclick="abrirModalRecibosGenerados()" class="btn-pdf">📄 Ver Recibos Generados</button>
                     <button onclick="limpiarFormulario()" class="btn-clear">Limpiar</button>
@@ -64,7 +64,8 @@
                     <div class="header-right">
                         <div class="receipt-number-box">
                             <span class="rn-label">RECIBO No.</span>
-                            <span class="rn-value" id="receipt-number-value">47</span>
+                            <!-- Correlativo Editable -->
+                            <input type="text" class="rn-value-input" id="receipt-number-value" value="47">
                         </div>
                     </div>
                 </div>
@@ -314,7 +315,7 @@
         </div>
     </div>
 
-    <!-- 🆕 MODAL RECIBOS GENERADOS -->
+    <!-- MODAL RECIBOS GENERADOS -->
     <div id="modal-recibos-generados" class="modal">
         <div class="modal-content" style="width: 70%; max-width: 900px;">
             <span class="close" onclick="cerrarModalRecibosGenerados()">&times;</span>
