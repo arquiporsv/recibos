@@ -32,6 +32,26 @@ button { padding: 8px 15px; border: none; border-radius: 4px; cursor: pointer; f
 .receipt-number-box { display: flex; flex-direction: column; align-items: flex-end; }
 .rn-label { font-weight: bold; color: #1f3a6d; font-size: 12px; margin-top: 5px; }
 .rn-value { font-size: 20px; font-weight: bold; color: #1f3a6d; }
+
+/* ESTILO NUEVO PARA EL INPUT DEL CORRELATIVO */
+.rn-value-input {
+    font-size: 20px;
+    font-weight: bold;
+    color: #1f3a6d;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    padding: 2px 5px;
+    width: 80px;
+    text-align: center;
+    background: #fff;
+    outline: none;
+    margin-top: 5px;
+}
+.rn-value-input:focus {
+    border-color: #1f3a6d;
+    box-shadow: 0 0 3px rgba(31, 58, 109, 0.3);
+}
+
 .header-input { padding: 5px; border: 1px solid #1f3a6d; border-radius: 4px; font-size: 13px; text-align: right; width: 220px; box-sizing: border-box; }
 .dte-checkbox { display: flex; align-items: center; gap: 6px; font-size: 13px; color: #1f3a6d; font-weight: bold; cursor: pointer; background: #d9e2f3; padding: 6px 10px; border-radius: 4px; }
 .dte-checkbox input { cursor: pointer; }
@@ -76,17 +96,7 @@ canvas { border: 1px dashed #ccc; cursor: crosshair; background-color: #fafafa; 
 .borrador-item { display: flex; justify-content: space-between; align-items: center; padding: 10px; border-bottom: 1px solid #eee; }
 .borrador-item button { padding: 5px 10px; font-size: 12px; margin-left: 5px; }
 
-/* 🆕 ESTILOS PARA EL VISOR DE RECIBOS GENERADOS */
-.recibo-generado-item {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 12px;
-    border: 1px solid #e0e0e0;
-    border-radius: 6px;
-    margin-bottom: 8px;
-    background: #f9fafc;
-}
+.recibo-generado-item { display: flex; justify-content: space-between; align-items: center; padding: 12px; border: 1px solid #e0e0e0; border-radius: 6px; margin-bottom: 8px; background: #f9fafc; }
 .recibo-generado-item:hover { background: #eef2f7; }
 .recibo-generado-info { display: flex; flex-direction: column; gap: 3px; }
 .recibo-generado-info .rg-titulo { font-weight: bold; color: #1f3a6d; font-size: 15px; }
@@ -99,4 +109,5 @@ canvas { border: 1px dashed #ccc; cursor: crosshair; background-color: #fafafa; 
     body { background: white; padding: 0; }
     .receipt-container { box-shadow: none; padding: 0; margin: 0; }
     canvas { border: none; background: transparent; }
+    .rn-value-input { border: none; box-shadow: none; background: transparent; font-size: 20px; font-weight: bold; color: #1f3a6d; text-align: right; padding: 0; }
 }
