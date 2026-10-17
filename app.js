@@ -33,7 +33,7 @@ let abonosFactura = [];
 let facturaEditandoId = null;
 let recibosGeneradosGlobal = [];
 let currentBorradorId = null; 
-let currentReceiptId = null; // <-- NUEVA VARIABLE: Para saber si editamos un PDF
+let currentReceiptId = null; 
 
 const fmt5 = (n) => '$' + (parseFloat(n) || 0).toFixed(5);
 
@@ -92,7 +92,7 @@ window.switchTab = function(tab) {
 async function inicializarApp() {
     receiverSignature = new SmoothSignature(document.querySelector("#signature-receiver"));
     payerSignature = new SmoothSignature(document.querySelector("#signature-payer"));
-    await cargarCorrelativo();
+    await setNextCorrelativo(); // <-- Ahora llama a la nueva función
     await cargarPersonasFrecuentes();
     await cargarProductos();
     await cargarNombres();
@@ -102,14 +102,19 @@ async function inicializarApp() {
 // ==========================================
 // RECIBOS - CORRELATIVO
 // ==========================================
-async function cargarCorrelativo() {
-    const docRef = doc(db, "configuracion", "correlativo");
-    const docSnap = await getDoc(docRef);
-    if (docSnap.exists()) {
-        document.getElementById('receipt-number-value').value = docSnap.data().valor;
-    } else {
-        await setDoc(docRef, { valor: 47 });
-        document.getElementById('receipt-number-value').value = 47;
+// <-- NUEVA FUNCIÓN: Trae el correlativo automático de la BD
+async function setNextCorrelativo() {
+    try {
+        const docRef = doc(db, "configuracion", "correlativo");
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+            document.getElementById('receipt-number-value').value = docSnap.data().valor;
+        } else {
+            await setDoc(docRef, { valor: 47 });
+            document.getElementById('receipt-number-value').value = 47;
+        }
+    } catch (e) {
+        console.error("Error al cargar correlativo:", e);
     }
 }
 
@@ -198,9 +203,9 @@ window.cargarBorrador = async function(id) {
     if (docSnap.exists()) {
         const d = docSnap.data();
         currentBorradorId = id; 
-        currentReceiptId = null; // Nos aseguramos de no estar editando un PDF
+        currentReceiptId = null; 
         
-        document.getElementById('btn-generar-pdf').textContent = 'Generar y Guardar PDF'; // Reset botón
+        document.getElementById('btn-generar-pdf').textContent = 'Generar y Guardar PDF'; 
 
         document.getElementById('fecha').value = d.fecha || '';
         document.getElementById('nombre').value = d.nombre || '';
@@ -236,14 +241,18 @@ window.eliminarBorrador = async function(id) {
 // ==========================================
 // RECIBOS - LIMPIAR Y FIRMAS
 // ==========================================
-window.limpiarFormulario = function(skipConfirm = false) {
+// <-- HECHO ASÍNCRONO para poder esperar a traer el nuevo correlativo
+window.limpiarFormulario = async function(skipConfirm = false) {
     if (!skipConfirm && !confirm("¿Limpiar formulario?")) return;
     ['fecha','nombre','dui','concepto','monto'].forEach(id => document.getElementById(id).value = '');
     receiverSignature.clear();
     payerSignature.clear();
     currentBorradorId = null; 
-    currentReceiptId = null; // Limpiamos el estado de edición de PDF
-    document.getElementById('btn-generar-pdf').textContent = 'Generar y Guardar PDF'; // Restaurar botón
+    currentReceiptId = null; 
+    document.getElementById('btn-generar-pdf').textContent = 'Generar y Guardar PDF'; 
+    
+    // <-- Traer el próximo correlativo automáticamente
+    await setNextCorrelativo();
 };
 
 window.clearSignature = function(t) {
@@ -262,7 +271,6 @@ window.descargarPDF = async function() {
     if (!nombre || !monto) return alert("Complete Nombre y Monto.");
     if (!correlativo) return alert("Ingrese un número de recibo.");
 
-    // VALIDACIÓN: Verificar que el correlativo no exista ya, EXCEPTO si estamos editando ESE MISMO recibo
     const qCheck = query(collection(db, "recibos_pdfs"), where("userId", "==", currentUser.uid), where("correlativo", "==", correlativo));
     const snapCheck = await getDocs(qCheck);
     
@@ -297,7 +305,6 @@ window.descargarPDF = async function() {
         const pdfDataUri = await pdfWorker.toPdf().get('pdf').then(pdf => pdf.output('datauristring'));
         await pdfWorker.save();
 
-        // Guardamos TODOS los datos para que la edición sea perfecta en el futuro
         const payload = {
             userId: currentUser.uid,
             correlativo: correlativo,
@@ -313,34 +320,31 @@ window.descargarPDF = async function() {
         };
 
         if (currentReceiptId) {
-            // ACTUALIZAR PDF EXISTENTE
             await updateDoc(doc(db, "recibos_pdfs", currentReceiptId), payload);
             alert("Recibo PDF actualizado exitosamente.");
         } else {
-            // CREAR NUEVO PDF
             payload.fechaCreacion = new Date().toISOString();
             await addDoc(collection(db, "recibos_pdfs"), payload);
             
-            // Actualizar el correlativo de configuración al siguiente número si este es mayor o igual
             const configRef = doc(db, "configuracion", "correlativo");
             const configSnap = await getDoc(configRef);
             let currentConfigVal = configSnap.exists() ? configSnap.data().valor : 47;
             let num = parseInt(correlativo);
             
             if (num >= currentConfigVal) {
+                // Solo actualizamos la BD, el input se actualiza en limpiarFormulario()
                 await setDoc(configRef, { valor: num + 1 });
-                document.getElementById('receipt-number-value').value = num + 1;
             }
             alert("PDF generado y guardado exitosamente.");
         }
 
-        // Si venimos de un borrador, lo eliminamos porque ya se convirtió en PDF
         if (currentBorradorId) {
             await deleteDoc(doc(db, "borradores", currentBorradorId));
             currentBorradorId = null;
         }
 
-        limpiarFormulario(true); // Limpiar sin pedir confirmación
+        // <-- await para asegurar que trae el nuevo correlativo antes de terminar
+        await limpiarFormulario(true); 
 
     } catch (e) {
         alert("Error: " + e.message);
@@ -415,14 +419,11 @@ window.editarReciboGenerado = async function(id) {
     if (!docSnap.exists()) return;
     const d = docSnap.data();
 
-    // Seteamos el modo de edición
     currentReceiptId = id;
     currentBorradorId = null;
     
-    // Cambiamos el texto del botón principal
     document.getElementById('btn-generar-pdf').textContent = 'Actualizar Recibo PDF';
 
-    // Cargar datos al formulario
     document.getElementById('fecha').value = d.fecha || '';
     document.getElementById('nombre').value = d.nombre || '';
     document.getElementById('dui').value = d.dui || '';
@@ -463,7 +464,7 @@ window.eliminarReciboGuardado = async function(id) {
         await deleteDoc(doc(db, "recibos_pdfs", id));
         recibosGeneradosGlobal = recibosGeneradosGlobal.filter(r => r.id !== id);
         filtrarRecibosGenerados();
-        if(currentReceiptId === id) limpiarFormulario(true);
+        if(currentReceiptId === id) await limpiarFormulario(true);
     } catch (e) {
         alert("Error al eliminar: " + e.message);
     }
