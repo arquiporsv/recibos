@@ -52,7 +52,8 @@
                     <button onclick="abrirModalBorradores()" class="btn-draft">Ver Borradores</button>
                     <button onclick="abrirModalRecibosGenerados()" class="btn-pdf">📄 Ver Recibos Generados</button>
                     <button onclick="limpiarFormulario()" class="btn-clear">Limpiar</button>
-                    <button onclick="descargarPDF()" class="btn-pdf">Generar y Guardar PDF</button>
+                    <!-- ID agregado para cambiar el texto -->
+                    <button onclick="descargarPDF()" class="btn-pdf" id="btn-generar-pdf">Generar y Guardar PDF</button>
                 </div>
             </div>
             <div id="receipt-container" class="receipt-container">
@@ -64,7 +65,6 @@
                     <div class="header-right">
                         <div class="receipt-number-box">
                             <span class="rn-label">RECIBO No.</span>
-                            <!-- Correlativo Editable -->
                             <input type="text" class="rn-value-input" id="receipt-number-value" value="47">
                         </div>
                     </div>
