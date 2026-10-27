@@ -1,12 +1,9 @@
-// ==========================================
-// IMPORTACIONES DE FIREBASE
-// ==========================================
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
 import { getFirestore, doc, getDoc, setDoc, collection, addDoc, getDocs, query, where, deleteDoc, updateDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
 // ==========================================
-// CONFIGURACIÓN DE FIREBASE
+// CONFIGURACIÓN
 // ==========================================
 const firebaseConfig = {
   apiKey: "AIzaSyAHoBtvREojg4moDy3nOfzg_kVdFzZNngw",
@@ -17,28 +14,26 @@ const firebaseConfig = {
   appId: "1:430281363537:web:d30dc376ffab395a1f6870"
 };
 
+// ID de Google Cloud
+const GOOGLE_CLIENT_ID = "148923041820-euc2h5fpfjnvtb9qhq3kcqcir7fcj8f1.apps.googleusercontent.com"; 
+
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const auth = getAuth(app);
 
-// ==========================================
-// VARIABLES GLOBALES
-// ==========================================
 let currentUser = null;
+let tokenClient;
+let gapiInited = false;
+let gisInited = false;
+
+// Variables Globales
 let receiverSignature, payerSignature;
-let productosGlobal = [];
-let nombresGlobal = [];
-let itemsFactura = [];
-let abonosFactura = [];
-let facturaEditandoId = null;
-let recibosGeneradosGlobal = [];
 let currentBorradorId = null; 
 let currentReceiptId = null; 
-
-const fmt5 = (n) => '$' + (parseFloat(n) || 0).toFixed(5);
+let gastosTemp = [];
 
 // ==========================================
-// AUTENTICACIÓN
+// AUTENTICACIÓN FIREBASE
 // ==========================================
 window.login = async function() {
     const email = document.getElementById('auth-email').value;
@@ -46,25 +41,22 @@ window.login = async function() {
     try { await signInWithEmailAndPassword(auth, email, password); } 
     catch (error) { document.getElementById('auth-message').textContent = "Error: " + error.message; }
 };
-
 window.register = async function() {
     const email = document.getElementById('auth-email').value;
     const password = document.getElementById('auth-password').value;
     try { await createUserWithEmailAndPassword(auth, email, password); } 
     catch (error) { document.getElementById('auth-message').textContent = "Error: " + error.message; }
 };
-
 window.logout = function() { signOut(auth); };
 
 onAuthStateChanged(auth, (user) => {
     if (user) {
         currentUser = user;
         document.getElementById('auth-container').style.display = 'none';
-        document.getElementById('app-container').style.display = 'block';
+        document.getElementById('app-container').style.display = 'flex';
         document.getElementById('user-email-display').textContent = user.email;
         inicializarApp();
     } else {
-        currentUser = null;
         document.getElementById('auth-container').style.display = 'flex';
         document.getElementById('app-container').style.display = 'none';
     }
@@ -73,242 +65,191 @@ onAuthStateChanged(auth, (user) => {
 // ==========================================
 // NAVEGACIÓN
 // ==========================================
-window.switchTab = function(tab) {
+window.switchTab = function(tab, btnElement) {
     document.querySelectorAll('.view-section').forEach(v => v.style.display = 'none');
-    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-    if (tab === 'recibos') {
-        document.getElementById('view-recibos').style.display = 'block';
-        document.querySelector('.tab-btn:nth-child(1)').classList.add('active');
-    } else {
-        document.getElementById('view-facturas').style.display = 'block';
-        document.querySelector('.tab-btn:nth-child(2)').classList.add('active');
-        cargarListaFacturas();
-    }
+    document.querySelectorAll('.nav-link').forEach(b => b.classList.remove('active'));
+    
+    document.getElementById(`view-${tab}`).style.display = 'block';
+    if(btnElement) btnElement.classList.add('active');
+
+    if (tab === 'dte') cargarHistorialDTE();
+    if (tab === 'arqueo') initArqueo();
+    if (tab === 'liquidaciones') cargarHistorialLiquidaciones();
 };
 
 // ==========================================
-// INICIALIZACIÓN
+// GOOGLE DRIVE INTEGRATION
 // ==========================================
-async function inicializarApp() {
-    receiverSignature = new SmoothSignature(document.querySelector("#signature-receiver"));
-    payerSignature = new SmoothSignature(document.querySelector("#signature-payer"));
-    await setNextCorrelativo(); 
-    await cargarPersonasFrecuentes();
-    await cargarProductos();
-    await cargarNombres();
-    await cargarCorrelativoFactura();
+window.gapiLoaded = function() {
+    gapi.load('client', initializeGapiClient);
+};
+
+async function initializeGapiClient() {
+    await gapi.client.init({
+        discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'],
+    });
+    gapiInited = true;
+    maybeEnableButtons();
+}
+
+window.gisLoaded = function() {
+    tokenClient = google.accounts.oauth2.initTokenClient({
+        client_id: GOOGLE_CLIENT_ID,
+        scope: 'https://www.googleapis.com/auth/drive.file',
+        callback: (tokenResponse) => {
+            if (tokenResponse && tokenResponse.access_token) {
+                document.getElementById('google-status').style.display = 'block';
+                document.getElementById('btn-google-auth').style.display = 'none';
+            }
+        },
+    });
+    gisInited = true;
+    maybeEnableButtons();
+};
+
+function maybeEnableButtons() {
+    if (gapiInited && gisInited) {
+        const btn = document.getElementById('btn-google-auth');
+        if(btn) btn.disabled = false;
+    }
+}
+
+window.autorizarGoogleDrive = function() {
+    if (gapi.client.getToken() === null) {
+        tokenClient.requestAccessToken({ prompt: 'consent' });
+    } else {
+        tokenClient.requestAccessToken({ prompt: '' });
+    }
+};
+
+// Funciones de Drive
+async function obtenerOCrearCarpeta(nombre, parentId = null) {
+    let query = `name='${nombre}' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
+    if (parentId) query += ` and '${parentId}' in parents`;
+    
+    const response = await gapi.client.drive.files.list({ q: query, spaces: 'drive', fields: 'files(id, name)' });
+    
+    if (response.result.files.length > 0) {
+        return response.result.files[0].id;
+    } else {
+        const fileMetadata = { name: nombre, mimeType: 'application/vnd.google-apps.folder' };
+        if (parentId) fileMetadata.parents = [parentId];
+        const folder = await gapi.client.drive.files.create({ resource: fileMetadata, fields: 'id' });
+        return folder.result.id;
+    }
+}
+
+async function subirArchivoDrive(file, folderId) {
+    const metadata = { name: file.name, parents: [folderId] };
+    const form = new FormData();
+    form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
+    form.append('file', file);
+
+    const response = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+        method: 'POST',
+        headers: new Headers({ 'Authorization': 'Bearer ' + gapi.client.getToken().access_token }),
+        body: form
+    });
+    return response.json();
 }
 
 // ==========================================
-// RECIBOS - CORRELATIVO AUTOMÁTICO
+// MÓDULO RECIBOS (Básico)
 // ==========================================
-// Esta función busca el número más alto en los recibos generados y le suma 1.
 async function setNextCorrelativo() {
     try {
         const q = query(collection(db, "recibos_pdfs"), where("userId", "==", currentUser.uid));
         const snap = await getDocs(q);
-        
-        let maxCorrelativo = 46; // Valor inicial por defecto (para que el primero sea 47)
-        
+        let maxCorrelativo = 46;
         snap.forEach(doc => {
             const num = parseInt(doc.data().correlativo);
-            if (!isNaN(num) && num > maxCorrelativo) {
-                maxCorrelativo = num;
-            }
+            if (!isNaN(num) && num > maxCorrelativo) maxCorrelativo = num;
         });
-        
-        const nextNumber = maxCorrelativo + 1;
-        document.getElementById('receipt-number-value').value = nextNumber;
-        
-        // Sincronizamos el contador de configuración por si acaso
-        await setDoc(doc(db, "configuracion", "correlativo"), { valor: nextNumber });
-        
-    } catch (e) {
-        console.error("Error al calcular el próximo correlativo:", e);
-    }
+        document.getElementById('receipt-number-value').value = maxCorrelativo + 1;
+        await setDoc(doc(db, "configuracion", "correlativo"), { valor: maxCorrelativo + 1 });
+    } catch (e) { console.error(e); }
 }
-
-// ==========================================
-// RECIBOS - PERSONAS FRECUENTES
-// ==========================================
-window.guardarPersonaFrecuente = async function() {
-    const nombre = document.getElementById('nombre').value.trim();
-    const dui = document.getElementById('dui').value.trim();
-    if (!nombre || !dui) return alert("Ingrese Nombre y DUI.");
-    await addDoc(collection(db, "personas"), { nombre, dui, userId: currentUser.uid });
-    alert("Guardado.");
-    await cargarPersonasFrecuentes();
-};
-
-async function cargarPersonasFrecuentes() {
-    const select = document.getElementById('personas-frecuentes');
-    select.innerHTML = '<option value="">-- Seleccionar --</option>';
-    const q = query(collection(db, "personas"), where("userId", "==", currentUser.uid));
-    const snap = await getDocs(q);
-    snap.forEach(d => {
-        const p = d.data();
-        select.innerHTML += `<option value="${d.id}">${p.nombre} (${p.dui})</option>`;
-    });
-    select.onchange = (e) => {
-        const id = e.target.value;
-        if (id) {
-            const p = snap.docs.find(d => d.id === id).data();
-            document.getElementById('nombre').value = p.nombre;
-            document.getElementById('dui').value = p.dui;
-        }
-    };
-}
-
-// ==========================================
-// RECIBOS - BORRADORES
-// ==========================================
-window.guardarBorrador = async function() {
-    const borrador = {
-        userId: currentUser.uid,
-        fecha: document.getElementById('fecha').value,
-        nombre: document.getElementById('nombre').value,
-        dui: document.getElementById('dui').value,
-        concepto: document.getElementById('concepto').value,
-        monto: document.getElementById('monto').value,
-        correlativo: document.getElementById('receipt-number-value').value,
-        firmaRecibe: receiverSignature.toDataURL(),
-        firmaPaga: payerSignature.toDataURL(),
-        fechaGuardado: new Date().toISOString()
-    };
-    
-    if (currentBorradorId) {
-        await updateDoc(doc(db, "borradores", currentBorradorId), borrador);
-        alert("Borrador actualizado exitosamente.");
-    } else {
-        const docRef = await addDoc(collection(db, "borradores"), borrador);
-        currentBorradorId = docRef.id;
-        alert("Borrador guardado exitosamente.");
-    }
-};
-
-window.abrirModalBorradores = async function() {
-    const modal = document.getElementById('modal-borradores');
-    const lista = document.getElementById('lista-borradores');
-    lista.innerHTML = 'Cargando...';
-    modal.style.display = 'block';
-    const q = query(collection(db, "borradores"), where("userId", "==", currentUser.uid));
-    const snap = await getDocs(q);
-    lista.innerHTML = '';
-    if (snap.empty) {
-        lista.innerHTML = '<p style="text-align:center;color:#999;">No hay borradores guardados.</p>';
-        return;
-    }
-    snap.forEach(d => {
-        const data = d.data();
-        lista.innerHTML += `<div class="borrador-item"><span><b>${data.nombre || 'Sin nombre'}</b> - $${data.monto || '0'}</span><div><button onclick="cargarBorrador('${d.id}')" class="btn-pdf">Cargar</button><button onclick="eliminarBorrador('${d.id}')" class="btn-clear">Eliminar</button></div></div>`;
-    });
-};
-
-window.cerrarModalBorradores = function() {
-    document.getElementById('modal-borradores').style.display = 'none';
-};
-
-window.cargarBorrador = async function(id) {
-    const docSnap = await getDoc(doc(db, "borradores", id));
-    if (docSnap.exists()) {
-        const d = docSnap.data();
-        currentBorradorId = id; 
-        currentReceiptId = null; 
-        
-        document.getElementById('btn-generar-pdf').textContent = 'Generar y Guardar PDF'; 
-
-        document.getElementById('fecha').value = d.fecha || '';
-        document.getElementById('nombre').value = d.nombre || '';
-        document.getElementById('dui').value = d.dui || '';
-        document.getElementById('concepto').value = d.concepto || '';
-        document.getElementById('monto').value = d.monto || '';
-        if(d.correlativo) document.getElementById('receipt-number-value').value = d.correlativo;
-
-        receiverSignature.clear();
-        payerSignature.clear();
-        if (d.firmaRecibe) {
-            const img = new Image();
-            img.onload = () => document.getElementById('signature-receiver').getContext('2d').drawImage(img, 0, 0);
-            img.src = d.firmaRecibe;
-        }
-        if (d.firmaPaga) {
-            const img = new Image();
-            img.onload = () => document.getElementById('signature-payer').getContext('2d').drawImage(img, 0, 0);
-            img.src = d.firmaPaga;
-        }
-        cerrarModalBorradores();
-    }
-};
-
-window.eliminarBorrador = async function(id) {
-    if (confirm("¿Eliminar?")) {
-        await deleteDoc(doc(db, "borradores", id));
-        if (currentBorradorId === id) currentBorradorId = null;
-        abrirModalBorradores();
-    }
-};
-
-// ==========================================
-// RECIBOS - LIMPIAR Y FIRMAS
-// ==========================================
-window.limpiarFormulario = async function(skipConfirm = false) {
-    if (!skipConfirm && !confirm("¿Limpiar formulario?")) return;
-    ['fecha','nombre','dui','concepto','monto'].forEach(id => document.getElementById(id).value = '');
-    receiverSignature.clear();
-    payerSignature.clear();
-    currentBorradorId = null; 
-    currentReceiptId = null; 
-    document.getElementById('btn-generar-pdf').textContent = 'Generar y Guardar PDF'; 
-    
-    // Traer el próximo correlativo automáticamente basado en el último creado
-    await setNextCorrelativo();
-};
 
 window.clearSignature = function(t) {
     if (t === 'receiver') receiverSignature.clear();
     if (t === 'payer') payerSignature.clear();
 };
 
-// ==========================================
-// RECIBOS - GENERAR, GUARDAR Y ACTUALIZAR PDF
-// ==========================================
+window.limpiarFormulario = async function(skipConfirm = false) {
+    if (!skipConfirm && !confirm("¿Limpiar formulario?")) return;
+    ['fecha','nombre','dui','concepto','monto'].forEach(id => document.getElementById(id).value = '');
+    receiverSignature.clear(); payerSignature.clear();
+    currentBorradorId = null; currentReceiptId = null;
+    document.getElementById('btn-generar-pdf').textContent = 'Generar PDF';
+    await setNextCorrelativo();
+};
+
+window.guardarBorrador = async function() {
+    const borrador = {
+        userId: currentUser.uid, fecha: document.getElementById('fecha').value,
+        nombre: document.getElementById('nombre').value, dui: document.getElementById('dui').value,
+        concepto: document.getElementById('concepto').value, monto: document.getElementById('monto').value,
+        correlativo: document.getElementById('receipt-number-value').value,
+        firmaRecibe: receiverSignature.toDataURL(), firmaPaga: payerSignature.toDataURL(),
+        fechaGuardado: new Date().toISOString()
+    };
+    if (currentBorradorId) {
+        await updateDoc(doc(db, "borradores", currentBorradorId), borrador);
+        alert("Borrador actualizado.");
+    } else {
+        const ref = await addDoc(collection(db, "borradores"), borrador);
+        currentBorradorId = ref.id;
+        alert("Borrador guardado.");
+    }
+};
+
+window.abrirModalBorradores = async function() {
+    const modal = document.getElementById('modal-borradores');
+    const lista = document.getElementById('lista-borradores');
+    lista.innerHTML = 'Cargando...'; modal.style.display = 'block';
+    const q = query(collection(db, "borradores"), where("userId", "==", currentUser.uid));
+    const snap = await getDocs(q);
+    lista.innerHTML = '';
+    snap.forEach(d => {
+        const data = d.data();
+        lista.innerHTML += `<div class="borrador-item"><span>${data.nombre || 'Sin nombre'} - $${data.monto || '0'}</span><div><button onclick="cargarBorrador('${d.id}')" class="btn-pdf btn-sm">Cargar</button><button onclick="eliminarBorrador('${d.id}')" class="btn-clear btn-sm">Eliminar</button></div></div>`;
+    });
+};
+
+window.cerrarModalBorradores = () => document.getElementById('modal-borradores').style.display = 'none';
+
+window.cargarBorrador = async function(id) {
+    const docSnap = await getDoc(doc(db, "borradores", id));
+    if (docSnap.exists()) {
+        const d = docSnap.data();
+        currentBorradorId = id; currentReceiptId = null;
+        document.getElementById('btn-generar-pdf').textContent = 'Generar PDF';
+        document.getElementById('fecha').value = d.fecha || ''; document.getElementById('nombre').value = d.nombre || '';
+        document.getElementById('dui').value = d.dui || ''; document.getElementById('concepto').value = d.concepto || '';
+        document.getElementById('monto').value = d.monto || ''; document.getElementById('receipt-number-value').value = d.correlativo || '';
+        receiverSignature.clear(); payerSignature.clear();
+        if(d.firmaRecibe) { const img = new Image(); img.onload = () => document.getElementById('signature-receiver').getContext('2d').drawImage(img,0,0); img.src = d.firmaRecibe; }
+        if(d.firmaPaga) { const img = new Image(); img.onload = () => document.getElementById('signature-payer').getContext('2d').drawImage(img,0,0); img.src = d.firmaPaga; }
+        cerrarModalBorradores();
+    }
+};
+
+window.eliminarBorrador = async (id) => {
+    if (confirm("¿Eliminar borrador?")) { await deleteDoc(doc(db, "borradores", id)); abrirModalBorradores(); }
+};
+
 window.descargarPDF = async function() {
     const nombre = document.getElementById('nombre').value.trim();
     const monto = document.getElementById('monto').value.trim();
     const correlativo = document.getElementById('receipt-number-value').value.trim();
-
-    if (!nombre || !monto) return alert("Complete Nombre y Monto.");
-    if (!correlativo) return alert("Ingrese un número de recibo.");
-
-    // VALIDACIÓN: Verificar que el correlativo no exista ya, EXCEPTO si estamos editando ESE MISMO recibo
-    const qCheck = query(collection(db, "recibos_pdfs"), where("userId", "==", currentUser.uid), where("correlativo", "==", correlativo));
-    const snapCheck = await getDocs(qCheck);
-    
-    if (!snapCheck.empty) {
-        let isEditingSame = false;
-        if (currentReceiptId) {
-            snapCheck.forEach(doc => {
-                if (doc.id === currentReceiptId) isEditingSame = true;
-            });
-        }
-        if (!isEditingSame) {
-            return alert(`⚠️ El número de recibo #${correlativo} ya ha sido generado anteriormente. Por favor, elija otro número.`);
-        }
-    }
+    if (!nombre || !monto || !correlativo) return alert("Complete Nombre, Monto y Correlativo.");
 
     const elemento = document.getElementById('receipt-container');
-    const opciones = {
-        margin: 0,
-        filename: `Recibo_${correlativo}_${nombre.replace(/\s+/g, '_')}.pdf`,
-        image: { type: 'jpeg', quality: 0.98 },
-        html2canvas: { scale: 2 },
-        jsPDF: { unit: 'mm', format: 'letter', orientation: 'portrait' }
-    };
+    const opciones = { margin: 0, filename: `Recibo_${correlativo}_${nombre}.pdf`, image: { type: 'jpeg', quality: 0.98 }, html2canvas: { scale: 2 }, jsPDF: { unit: 'mm', format: 'letter', orientation: 'portrait' } };
 
     document.querySelectorAll('.clear-sig').forEach(b => b.style.display = 'none');
-    const correlativoInput = document.getElementById('receipt-number-value');
-    const originalBorder = correlativoInput.style.border;
-    correlativoInput.style.border = 'none';
+    const inputCorr = document.getElementById('receipt-number-value');
+    inputCorr.style.border = 'none';
 
     try {
         const pdfWorker = html2pdf().set(opciones).from(elemento);
@@ -316,716 +257,255 @@ window.descargarPDF = async function() {
         await pdfWorker.save();
 
         const payload = {
-            userId: currentUser.uid,
-            correlativo: correlativo,
-            nombre: nombre,
-            monto: monto,
-            fecha: document.getElementById('fecha').value || new Date().toISOString().split('T')[0],
-            dui: document.getElementById('dui').value,
+            userId: currentUser.uid, correlativo, nombre, monto,
+            fecha: document.getElementById('fecha').value, dui: document.getElementById('dui').value,
             concepto: document.getElementById('concepto').value,
-            firmaRecibe: receiverSignature.toDataURL(),
-            firmaPaga: payerSignature.toDataURL(),
-            pdfBase64: pdfDataUri,
-            fechaActualizacion: new Date().toISOString()
+            firmaRecibe: receiverSignature.toDataURL(), firmaPaga: payerSignature.toDataURL(),
+            pdfBase64: pdfDataUri, fechaActualizacion: new Date().toISOString()
         };
 
         if (currentReceiptId) {
             await updateDoc(doc(db, "recibos_pdfs", currentReceiptId), payload);
-            alert("Recibo PDF actualizado exitosamente.");
         } else {
-            payload.fechaCreacion = new Date().toISOString();
             await addDoc(collection(db, "recibos_pdfs"), payload);
-            alert("PDF generado y guardado exitosamente.");
         }
-
-        if (currentBorradorId) {
-            await deleteDoc(doc(db, "borradores", currentBorradorId));
-            currentBorradorId = null;
-        }
-
-        // Al limpiar el formulario, automáticamente buscará el nuevo correlativo más alto
-        await limpiarFormulario(true); 
-
-    } catch (e) {
-        alert("Error: " + e.message);
-    } finally {
-        document.querySelectorAll('.clear-sig').forEach(b => b.style.display = 'block');
-        correlativoInput.style.border = originalBorder;
-    }
+        if (currentBorradorId) { await deleteDoc(doc(db, "borradores", currentBorradorId)); currentBorradorId = null; }
+        await limpiarFormulario(true);
+        alert("PDF generado y guardado.");
+    } catch (e) { alert("Error: " + e.message); } 
+    finally { document.querySelectorAll('.clear-sig').forEach(b => b.style.display = 'block'); inputCorr.style.border = '1px solid #ccc'; }
 };
 
-// ==========================================
-// VISOR Y EDICIÓN DE RECIBOS GENERADOS
-// ==========================================
 window.abrirModalRecibosGenerados = async function() {
     const modal = document.getElementById('modal-recibos-generados');
     const lista = document.getElementById('lista-recibos-generados');
-    lista.innerHTML = '<p style="text-align:center; color:#666;">Cargando...</p>';
-    modal.style.display = 'block';
-    document.getElementById('buscar-recibo-generado').value = '';
-
-    try {
-        const q = query(collection(db, "recibos_pdfs"), where("userId", "==", currentUser.uid));
-        const snap = await getDocs(q);
-        recibosGeneradosGlobal = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-        recibosGeneradosGlobal.sort((a, b) => (parseInt(b.correlativo) || 0) - (parseInt(a.correlativo) || 0));
-        renderizarRecibosGenerados(recibosGeneradosGlobal);
-    } catch (e) {
-        lista.innerHTML = '<p style="color:red;">Error al cargar: ' + e.message + '</p>';
-    }
-};
-
-window.cerrarModalRecibosGenerados = function() {
-    document.getElementById('modal-recibos-generados').style.display = 'none';
-};
-
-window.filtrarRecibosGenerados = function() {
-    const filtro = document.getElementById('buscar-recibo-generado').value.trim().toLowerCase();
-    if (!filtro) {
-        renderizarRecibosGenerados(recibosGeneradosGlobal);
-        return;
-    }
-    const filtrados = recibosGeneradosGlobal.filter(r =>
-        (r.nombre || '').toLowerCase().includes(filtro) ||
-        (r.correlativo || '').toString().includes(filtro) ||
-        (r.monto || '').toString().includes(filtro)
-    );
-    renderizarRecibosGenerados(filtrados);
-};
-
-function renderizarRecibosGenerados(lista) {
-    const contenedor = document.getElementById('lista-recibos-generados');
-    if (!lista || lista.length === 0) {
-        contenedor.innerHTML = '<p style="text-align:center; color:#999;">No hay recibos generados que mostrar.</p>';
-        return;
-    }
-    contenedor.innerHTML = lista.map(r => `
-        <div class="recibo-generado-item">
-            <div class="recibo-generado-info">
-                <span class="rg-titulo">Recibo #${r.correlativo || '?'} — ${r.nombre || 'Sin nombre'}</span>
-                <span class="rg-detalle">💰 Monto: $${parseFloat(r.monto || 0).toFixed(2)}  |  📅 Fecha: ${r.fecha || 'N/A'}</span>
-            </div>
-            <div class="recibo-generado-acciones">
-                <button onclick="editarReciboGenerado('${r.id}')" class="btn-draft">✏️ Editar</button>
-                <button onclick="descargarReciboGuardado('${r.id}')" class="btn-pdf">⬇️ Descargar</button>
-                <button onclick="eliminarReciboGuardado('${r.id}')" class="btn-clear">🗑️ Eliminar</button>
-            </div>
-        </div>
-    `).join('');
-}
-
-window.editarReciboGenerado = async function(id) {
-    const docSnap = await getDoc(doc(db, "recibos_pdfs", id));
-    if (!docSnap.exists()) return;
-    const d = docSnap.data();
-
-    currentReceiptId = id;
-    currentBorradorId = null;
-    
-    document.getElementById('btn-generar-pdf').textContent = 'Actualizar Recibo PDF';
-
-    document.getElementById('fecha').value = d.fecha || '';
-    document.getElementById('nombre').value = d.nombre || '';
-    document.getElementById('dui').value = d.dui || '';
-    document.getElementById('concepto').value = d.concepto || '';
-    document.getElementById('monto').value = d.monto || '';
-    document.getElementById('receipt-number-value').value = d.correlativo || '';
-
-    receiverSignature.clear();
-    payerSignature.clear();
-    if (d.firmaRecibe) {
-        const img = new Image();
-        img.onload = () => document.getElementById('signature-receiver').getContext('2d').drawImage(img, 0, 0);
-        img.src = d.firmaRecibe;
-    }
-    if (d.firmaPaga) {
-        const img = new Image();
-        img.onload = () => document.getElementById('signature-payer').getContext('2d').drawImage(img, 0, 0);
-        img.src = d.firmaPaga;
-    }
-
-    cerrarModalRecibosGenerados();
-};
-
-window.descargarReciboGuardado = function(id) {
-    const recibo = recibosGeneradosGlobal.find(r => r.id === id);
-    if (!recibo || !recibo.pdfBase64) return alert("No se encontró el PDF de este recibo.");
-    const link = document.createElement('a');
-    link.href = recibo.pdfBase64;
-    link.download = `Recibo_${recibo.correlativo || 'X'}_${(recibo.nombre || 'cliente').replace(/\s+/g, '_')}.pdf`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-};
-
-window.eliminarReciboGuardado = async function(id) {
-    if (!confirm("¿Eliminar este recibo definitivamente? Esta acción no se puede deshacer.")) return;
-    try {
-        await deleteDoc(doc(db, "recibos_pdfs", id));
-        recibosGeneradosGlobal = recibosGeneradosGlobal.filter(r => r.id !== id);
-        filtrarRecibosGenerados();
-        if(currentReceiptId === id) await limpiarFormulario(true);
-    } catch (e) {
-        alert("Error al eliminar: " + e.message);
-    }
-};
-
-// ==========================================
-// PRODUCTOS
-// ==========================================
-async function cargarProductos() {
-    const q = query(collection(db, "productos"), where("userId", "==", currentUser.uid));
+    lista.innerHTML = 'Cargando...'; modal.style.display = 'block';
+    const q = query(collection(db, "recibos_pdfs"), where("userId", "==", currentUser.uid));
     const snap = await getDocs(q);
-    productosGlobal = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    productosGlobal.sort((a, b) => a.nombre.localeCompare(b.nombre));
-    actualizarDatalistProductos();
-    renderizarTablaProductos();
-}
-
-function actualizarDatalistProductos() {
-    document.getElementById('lista-productos').innerHTML = productosGlobal.map(p => `<option value="${p.nombre}"></option>`).join('');
-}
-
-function renderizarTablaProductos() {
-    const tbody = document.getElementById('cuerpo-productos');
-    tbody.innerHTML = '';
-    productosGlobal.forEach(p => {
-        tbody.innerHTML += `<tr><td>${p.nombre}</td><td><button onclick="eliminarProducto('${p.id}')" class="btn-clear">Eliminar</button></td></tr>`;
+    lista.innerHTML = '';
+    snap.forEach(d => {
+        const data = d.data();
+        lista.innerHTML += `<div class="borrador-item"><span>#${data.correlativo} - ${data.nombre} - $${data.monto}</span><div><button onclick="descargarReciboGuardado('${data.pdfBase64}', '${data.correlativo}')" class="btn-pdf btn-sm">Descargar</button></div></div>`;
     });
-}
-
-window.abrirModalProductos = function() {
-    document.getElementById('modal-productos').style.display = 'block';
-    cargarProductos();
 };
 
-window.cerrarModalProductos = function() {
-    document.getElementById('modal-productos').style.display = 'none';
+window.cerrarModalRecibosGenerados = () => document.getElementById('modal-recibos-generados').style.display = 'none';
+window.descargarReciboGuardado = function(base64, corr) {
+    const link = document.createElement('a');
+    link.href = base64;
+    link.download = `Recibo_${corr}.pdf`;
+    link.click();
 };
 
-window.limpiarDuplicados = async function() {
-    if (!confirm("¿Eliminar todos los productos duplicados? Se conservará el primer registro.")) return;
-    const vistos = new Set();
-    let eliminados = 0;
-    for (const p of productosGlobal) {
-        const clave = p.nombre.trim().toLowerCase();
-        if (vistos.has(clave)) {
-            await deleteDoc(doc(db, "productos", p.id));
-            eliminados++;
-        } else {
-            vistos.add(clave);
-        }
-    }
-    alert(`Se eliminaron ${eliminados} productos duplicados.`);
-    await cargarProductos();
-};
-
-window.importarExcel = function() {
-    const fileInput = document.getElementById('excel-file');
-    const file = fileInput.files[0];
-    if (!file) return alert("Seleccione un archivo Excel.");
+// ==========================================
+// MÓDULO DTE
+// ==========================================
+window.procesarDTE = async function() {
+    const jsonFile = document.getElementById('dte-json').files[0];
+    const pdfFile = document.getElementById('dte-pdf').files[0];
+    if (!jsonFile) return alert("Selecciona el archivo JSON del DTE.");
+    
     const reader = new FileReader();
     reader.onload = async (e) => {
-        const data = new Uint8Array(e.target.result);
-        const workbook = XLSX.read(data, { type: 'array' });
-        const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-        const jsonData = XLSX.utils.sheet_to_json(firstSheet);
-        const existentes = new Set(productosGlobal.map(p => p.nombre.trim().toLowerCase()));
-        const procesadosEnEsteExcel = new Set();
-        let importados = 0, omitidos = 0;
-        for (const row of jsonData) {
-            const nombreRaw = row.Nombre || row.nombre || row.NOMBRE || row.Producto || row.producto || row.PRODUCTO;
-            if (nombreRaw) {
-                const nombre = String(nombreRaw).trim();
-                const clave = nombre.toLowerCase();
-                if (existentes.has(clave) || procesadosEnEsteExcel.has(clave)) {
-                    omitidos++;
-                    continue;
-                }
-                await addDoc(collection(db, "productos"), { userId: currentUser.uid, nombre });
-                procesadosEnEsteExcel.add(clave);
-                importados++;
+        try {
+            const dteData = JSON.parse(e.target.result);
+            const identificacion = dteData.identificacion;
+            const receptor = dteData.receptor;
+            const resumen = dteData.resumen;
+            
+            const codGen = identificacion.codigoGeneracion;
+            const numControl = identificacion.numeroControl;
+            const fecha = identificacion.fecEmi; 
+            const tipoDte = identificacion.tipoDte; 
+            const total = resumen.totalPagar;
+            
+            let tipoNombre = tipoDte === '01' ? 'CONSUMIDOR FINAL' : (tipoDte === '03' ? 'CREDITO FISCAL' : 'OTRO');
+
+            await addDoc(collection(db, "reportes_dte"), {
+                userId: currentUser.uid, codigoGeneracion: codGen, numeroControl: numControl,
+                fecha: fecha, tipoDte: tipoDte, tipoNombre: tipoNombre,
+                cliente: receptor.nombre, total: total, jsonOriginal: dteData
+            });
+
+            const token = gapi.client.getToken();
+            if (token) {
+                const [year, month] = fecha.split('-');
+                const rootId = await obtenerOCrearCarpeta('FACTURAS ARQUIPOR EL SALVADOR');
+                const yearId = await obtenerOCrearCarpeta(year, rootId);
+                const monthId = await obtenerOCrearCarpeta(month, yearId);
+                const tipoId = await obtenerOCrearCarpeta(tipoNombre, monthId);
+                
+                await subirArchivoDrive(jsonFile, tipoId);
+                if (pdfFile) await subirArchivoDrive(pdfFile, tipoId);
+                alert("DTE procesado y subido a Google Drive.");
+            } else {
+                alert("DTE guardado en BD (No conectado a Drive).");
             }
-        }
-        alert(`Se importaron ${importados} productos.\n${omitidos} omitidos por duplicados.`);
-        fileInput.value = '';
-        await cargarProductos();
+            cargarHistorialDTE();
+        } catch (error) { alert("Error al procesar JSON: " + error.message); }
     };
-    reader.readAsArrayBuffer(file);
+    reader.readAsText(jsonFile);
 };
 
-window.agregarProductoManual = async function() {
-    const nombre = document.getElementById('prod-nombre').value.trim();
-    if (!nombre) return alert("Ingrese el nombre del producto.");
-    const existe = productosGlobal.some(p => p.nombre.trim().toLowerCase() === nombre.toLowerCase());
-    if (existe) return alert("Este producto ya existe.");
-    await addDoc(collection(db, "productos"), { userId: currentUser.uid, nombre });
-    document.getElementById('prod-nombre').value = '';
-    await cargarProductos();
-};
-
-window.eliminarProducto = async function(id) {
-    if (confirm("¿Eliminar producto?")) {
-        await deleteDoc(doc(db, "productos", id));
-        await cargarProductos();
-    }
-};
-
-// ==========================================
-// NOMBRES (Vendedor / Depositante)
-// ==========================================
-async function cargarNombres() {
-    const q = query(collection(db, "nombres"), where("userId", "==", currentUser.uid));
+async function cargarHistorialDTE() {
+    const tbody = document.getElementById('cuerpo-dtes');
+    tbody.innerHTML = 'Cargando...';
+    const q = query(collection(db, "reportes_dte"), where("userId", "==", currentUser.uid));
     const snap = await getDocs(q);
-    nombresGlobal = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    nombresGlobal.sort((a, b) => a.nombre.localeCompare(b.nombre));
-    actualizarDatalistNombres();
-    renderizarTablaNombres();
-}
-
-function actualizarDatalistNombres() {
-    document.getElementById('lista-nombres').innerHTML = nombresGlobal.map(n => `<option value="${n.nombre}"></option>`).join('');
-}
-
-function renderizarTablaNombres() {
-    const tbody = document.getElementById('cuerpo-nombres');
-    if (!tbody) return;
     tbody.innerHTML = '';
-    nombresGlobal.forEach(n => {
-        tbody.innerHTML += `<tr><td>${n.nombre}</td><td><button onclick="eliminarNombre('${n.id}')" class="btn-clear">Eliminar</button></td></tr>`;
+    snap.forEach(doc => {
+        const d = doc.data();
+        tbody.innerHTML += `<tr><td>${d.fecha}</td><td>${d.tipoNombre}</td><td>${d.numeroControl}</td><td>${d.cliente}</td><td>$${parseFloat(d.total).toFixed(2)}</td></tr>`;
     });
 }
 
-window.abrirModalNombres = function() {
-    document.getElementById('modal-nombres').style.display = 'block';
-    cargarNombres();
-};
-
-window.cerrarModalNombres = function() {
-    document.getElementById('modal-nombres').style.display = 'none';
-};
-
-window.agregarNombreManual = async function() {
-    const nombre = document.getElementById('nombres-nombre').value.trim();
-    if (!nombre) return alert("Ingrese un nombre.");
-    const existe = nombresGlobal.some(n => n.nombre.trim().toLowerCase() === nombre.toLowerCase());
-    if (existe) return alert("Este nombre ya existe.");
-    await addDoc(collection(db, "nombres"), { userId: currentUser.uid, nombre });
-    document.getElementById('nombres-nombre').value = '';
-    await cargarNombres();
-};
-
-window.eliminarNombre = async function(id) {
-    if (confirm("¿Eliminar nombre?")) {
-        await deleteDoc(doc(db, "nombres", id));
-        await cargarNombres();
-    }
-};
-
 // ==========================================
-// FACTURAS
+// MÓDULO ARQUEO
 // ==========================================
-async function cargarCorrelativoFactura() {
-    const docRef = doc(db, "configuracion", "correlativoFactura");
-    const docSnap = await getDoc(docRef);
-    if (!docSnap.exists()) {
-        await setDoc(docRef, { valor: 1 });
-    }
+const billetes = [100, 50, 20, 10, 5, 2, 1];
+const monedas = [1, 0.5, 0.25, 0.1, 0.05, 0.01];
+
+function initArqueo() {
+    document.getElementById('arqueo-fecha').value = new Date().toISOString().split('T')[0];
+    document.getElementById('arqueo-billetes').innerHTML = billetes.map(b => `<tr><td>$${b.toFixed(2)}</td><td><input type="number" class="arqueo-cant" data-val="${b}" value="0" min="0" oninput="calcularArqueo()"></td><td class="subtotal-billete">$0.00</td></tr>`).join('');
+    document.getElementById('arqueo-monedas').innerHTML = monedas.map(m => `<tr><td>$${m.toFixed(2)}</td><td><input type="number" class="arqueo-cant" data-val="${m}" value="0" min="0" oninput="calcularArqueo()"></td><td class="subtotal-moneda">$0.00</td></tr>`).join('');
+    document.getElementById('arqueo-esperado').addEventListener('input', calcularArqueo);
 }
 
-window.toggleMultipleDTE = function() {
-    const checked = document.getElementById('factura-multiple-dte').checked;
-    document.getElementById('campos-dte-header').style.display = checked ? 'none' : 'flex';
-    document.getElementById('th-dte-abono').style.display = checked ? '' : 'none';
-    if (!checked) {
-        abonosFactura.forEach(a => {
-            a.codigoGeneracion = '';
-            a.numeroControl = '';
+window.calcularArqueo = function() {
+    let totalB = 0, totalM = 0;
+    document.querySelectorAll('#arqueo-billetes .arqueo-cant').forEach((input, i) => {
+        const sub = parseFloat(input.getAttribute('data-val')) * (parseInt(input.value) || 0);
+        document.querySelectorAll('.subtotal-billete')[i].textContent = `$${sub.toFixed(2)}`;
+        totalB += sub;
+    });
+    document.querySelectorAll('#arqueo-monedas .arqueo-cant').forEach((input, i) => {
+        const sub = parseFloat(input.getAttribute('data-val')) * (parseInt(input.value) || 0);
+        document.querySelectorAll('.subtotal-moneda')[i].textContent = `$${sub.toFixed(2)}`;
+        totalM += sub;
+    });
+    const totalEfectivo = totalB + totalM;
+    const esperado = parseFloat(document.getElementById('arqueo-esperado').value) || 0;
+    const diferencia = totalEfectivo - esperado;
+    document.getElementById('total-efectivo').textContent = `$${totalEfectivo.toFixed(2)}`;
+    document.getElementById('arqueo-diferencia').textContent = `$${diferencia.toFixed(2)}`;
+    document.getElementById('arqueo-diferencia').style.color = diferencia === 0 ? 'green' : 'red';
+};
+
+window.generarArqueoPDF = async function() {
+    const fecha = document.getElementById('arqueo-fecha').value;
+    if (!fecha) return alert("Selecciona una fecha.");
+    const elemento = document.getElementById('arqueo-container');
+    const nombreArchivo = `${fecha.split('-').reverse().join('-')}.pdf`;
+    const opciones = { margin: 10, filename: nombreArchivo, image: { type: 'jpeg', quality: 0.98 }, html2canvas: { scale: 2 }, jsPDF: { unit: 'mm', format: 'letter', orientation: 'portrait' } };
+
+    try {
+        const pdfWorker = html2pdf().set(opciones).from(elemento);
+        const pdfBlob = await pdfWorker.outputPdf('blob');
+        await addDoc(collection(db, "arqueos"), {
+            userId: currentUser.uid, fecha: fecha,
+            totalEfectivo: document.getElementById('total-efectivo').textContent,
+            diferencia: document.getElementById('arqueo-diferencia').textContent
         });
-    }
-    renderizarAbonosFactura();
+
+        const token = gapi.client.getToken();
+        if (token) {
+            const [year, month] = fecha.split('-');
+            const rootId = await obtenerOCrearCarpeta('ARQUEOS DE CAJA');
+            const yearId = await obtenerOCrearCarpeta(year, rootId);
+            const monthId = await obtenerOCrearCarpeta(month, yearId);
+            const file = new File([pdfBlob], nombreArchivo, { type: 'application/pdf' });
+            await subirArchivoDrive(file, monthId);
+            alert("Arqueo guardado y subido a Drive.");
+        } else { await pdfWorker.save(); alert("Arqueo descargado localmente."); }
+    } catch(e) { alert("Error: " + e.message); }
 };
 
-window.nuevaFactura = function() {
-    facturaEditandoId = null;
-    itemsFactura = [];
-    abonosFactura = [];
-    document.getElementById('factura-tipo').value = 'Consumidor Final';
-    document.getElementById('factura-vendedor').value = '';
-    document.getElementById('factura-cliente-nombre').value = '';
-    document.getElementById('factura-cliente-nit').value = '';
-    document.getElementById('factura-cliente-nrc').value = '';
-    document.getElementById('factura-cliente-dui').value = '';
-    document.getElementById('factura-fecha').value = new Date().toISOString().split('T')[0];
-    document.getElementById('factura-multiple-dte').checked = false;
-    document.getElementById('factura-codigo-generacion').value = '';
-    document.getElementById('factura-numero-control').value = '';
-    document.getElementById('campos-dte-header').style.display = 'flex';
-    document.getElementById('th-dte-abono').style.display = 'none';
-    document.getElementById('buscar-producto').value = '';
-    document.getElementById('modo-edicion-badge').style.display = 'none';
-    document.getElementById('formulario-factura').style.display = 'block';
-    document.getElementById('lista-facturas-container').style.display = 'none';
-    toggleRetencion();
-    renderizarItemsFactura();
-    renderizarAbonosFactura();
+// ==========================================
+// MÓDULO LIQUIDACIONES
+// ==========================================
+window.crearNuevaLiquidacion = function() {
+    const totalRecibido = parseFloat(document.getElementById('liq-total-recibido').value);
+    const fechaRecibido = document.getElementById('liq-fecha-recibido').value;
+    if (isNaN(totalRecibido) || !fechaRecibido) return alert("Ingresa el total y la fecha recibida.");
+    gastosTemp = [];
+    document.getElementById('liq-total-recibido-view').textContent = `$${totalRecibido.toFixed(2)}`;
+    document.getElementById('liq-fechas').value = `Recibido el: ${fechaRecibido}`;
+    document.getElementById('panel-nueva-liquidacion').style.display = 'none';
+    document.getElementById('liquidacion-container').style.display = 'block';
+    document.getElementById('cuerpo-gastos').innerHTML = '';
+    agregarFilaGasto();
+    calcularLiquidacion();
 };
 
-window.cancelarEdicion = function() {
-    document.getElementById('formulario-factura').style.display = 'none';
-    document.getElementById('lista-facturas-container').style.display = 'block';
-    cargarListaFacturas();
+window.agregarFilaGasto = function() {
+    const index = gastosTemp.length;
+    gastosTemp.push({ detalle: '', doc: '', fecha: '', monto: 0 });
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${index + 1}</td><td><input type="text" oninput="actualizarGasto(${index}, 'detalle', this.value)"></td><td><input type="text" oninput="actualizarGasto(${index}, 'doc', this.value)"></td><td><input type="date" onchange="actualizarGasto(${index}, 'fecha', this.value)"></td><td><input type="number" step="0.01" oninput="actualizarGasto(${index}, 'monto', this.value)"></td><td class="no-print"><button onclick="eliminarFilaGasto(this, ${index})" class="btn-clear btn-sm">X</button></td>`;
+    document.getElementById('cuerpo-gastos').appendChild(tr);
 };
 
-function toggleRetencion() {
-    const tipo = document.getElementById('factura-tipo').value;
-    document.getElementById('fila-retencion').style.display = (tipo === 'Gran Contribuyente') ? 'flex' : 'none';
-    calcularTotalesFactura();
+window.actualizarGasto = function(index, campo, valor) {
+    if (campo === 'monto') valor = parseFloat(valor) || 0;
+    gastosTemp[index][campo] = valor;
+    calcularLiquidacion();
+};
+
+window.eliminarFilaGasto = function(btn, index) {
+    btn.closest('tr').remove();
+    gastosTemp.splice(index, 1);
+    document.querySelectorAll('#cuerpo-gastos tr').forEach((tr, i) => {
+        tr.cells[0].textContent = i + 1;
+        tr.cells[5].innerHTML = `<button onclick="eliminarFilaGasto(this, ${i})" class="btn-clear btn-sm">X</button>`;
+    });
+    calcularLiquidacion();
+};
+
+function calcularLiquidacion() {
+    const totalGastos = gastosTemp.reduce((sum, g) => sum + (g.monto || 0), 0);
+    const totalRecibido = parseFloat(document.getElementById('liq-total-recibido').value) || 0;
+    const disponible = totalRecibido - totalGastos;
+    document.getElementById('liq-total-gastos').textContent = `$${totalGastos.toFixed(2)}`;
+    document.getElementById('liq-disponible').textContent = `$${disponible.toFixed(2)}`;
+    document.getElementById('liq-disponible').style.color = disponible >= 0 ? 'black' : 'red';
 }
 
-window.agregarItemFactura = function() {
-    const nombreProd = document.getElementById('buscar-producto').value.trim();
-    const cantidad = parseFloat(document.getElementById('cantidad-producto').value);
-    const precioConIva = parseFloat(document.getElementById('precio-con-iva-item').value);
-
-    if (!nombreProd) return alert("Escriba o seleccione un producto.");
-    if (isNaN(cantidad) || cantidad <= 0) return alert("Cantidad inválida.");
-    if (isNaN(precioConIva) || precioConIva <= 0) return alert("Precio con IVA inválido.");
-
-    const prod = productosGlobal.find(p => p.nombre.trim().toLowerCase() === nombreProd.toLowerCase());
-    if (!prod) return alert("Producto no encontrado en la lista. Verifique el nombre o agréguelo en 'Gestionar Productos'.");
-
-    const precioSinIva = precioConIva / 1.13;
-    const totalSinIva = precioSinIva * cantidad;
-
-    itemsFactura.push({
-        nombre: prod.nombre,
-        cantidad: cantidad,
-        precioConIva: precioConIva,
-        precioSinIva: precioSinIva,
-        totalSinIva: totalSinIva
+window.guardarLiquidacion = async function() {
+    const totalRecibido = parseFloat(document.getElementById('liq-total-recibido').value);
+    const totalGastos = gastosTemp.reduce((sum, g) => sum + (g.monto || 0), 0);
+    await addDoc(collection(db, "liquidaciones"), {
+        userId: currentUser.uid, fechaRecibido: document.getElementById('liq-fecha-recibido').value,
+        totalRecibido: totalRecibido, totalGastos: totalGastos,
+        disponible: totalRecibido - totalGastos, gastos: gastosTemp, fechaGuardado: new Date().toISOString()
     });
-
-    document.getElementById('buscar-producto').value = '';
-    document.getElementById('cantidad-producto').value = '1';
-    document.getElementById('precio-con-iva-item').value = '';
-    renderizarItemsFactura();
+    alert("Liquidación guardada.");
+    document.getElementById('panel-nueva-liquidacion').style.display = 'block';
+    document.getElementById('liquidacion-container').style.display = 'none';
+    cargarHistorialLiquidaciones();
 };
 
-function renderizarItemsFactura() {
-    const tbody = document.getElementById('cuerpo-items');
-    tbody.innerHTML = '';
-    itemsFactura.forEach((item, index) => {
-        const cantMostrar = Number.isInteger(item.cantidad) ? item.cantidad : item.cantidad.toFixed(2);
-        tbody.innerHTML += `
-            <tr>
-                <td>${cantMostrar}</td>
-                <td>${item.nombre}</td>
-                <td>${fmt5(item.precioConIva)}</td>
-                <td>${fmt5(item.precioSinIva)}</td>
-                <td>${fmt5(item.totalSinIva)}</td>
-                <td class="no-print"><button onclick="eliminarItemFactura(${index})" class="btn-clear" style="padding:2px 6px; font-size:12px;">X</button></td>
-            </tr>`;
-    });
-    calcularTotalesFactura();
-}
-
-window.eliminarItemFactura = function(index) {
-    itemsFactura.splice(index, 1);
-    renderizarItemsFactura();
-};
-
-function calcularTotalesFactura() {
-    const subtotal = itemsFactura.reduce((sum, item) => sum + item.totalSinIva, 0);
-    const iva = subtotal * 0.13;
-    const totalConIva = subtotal + iva;
-    const tipo = document.getElementById('factura-tipo').value;
-    const retencion = tipo === 'Gran Contribuyente' ? subtotal * 0.01 : 0;
-    const totalPagar = totalConIva - retencion;
-
-    document.getElementById('factura-subtotal').textContent = fmt5(subtotal);
-    document.getElementById('factura-iva').textContent = fmt5(iva);
-    document.getElementById('factura-total-con-iva').textContent = fmt5(totalConIva);
-    document.getElementById('factura-retencion').textContent = fmt5(retencion);
-    document.getElementById('factura-total-pagar').textContent = '$' + totalPagar.toFixed(2);
-
-    renderizarAbonosFactura();
-}
-
-window.agregarAbono = function() {
-    const metodo = document.getElementById('abono-metodo').value;
-    const fecha = document.getElementById('abono-fecha').value || new Date().toISOString().split('T')[0];
-    const monto = parseFloat(document.getElementById('abono-monto').value);
-    if (isNaN(monto) || monto <= 0) return alert("Ingrese un monto de abono válido.");
-
-    abonosFactura.push({
-        metodo: metodo,
-        fecha: fecha,
-        monto: monto,
-        fechaDeposito: '',
-        nombreDeposito: '',
-        codigoGeneracion: '',
-        numeroControl: ''
-    });
-    document.getElementById('abono-monto').value = '';
-    renderizarAbonosFactura();
-};
-
-window.guardarDepositoAbono = function(index, campo, valor) {
-    if (!abonosFactura[index]) return;
-    if (campo === 'fecha') abonosFactura[index].fechaDeposito = valor;
-    if (campo === 'nombre') abonosFactura[index].nombreDeposito = valor;
-};
-
-window.guardarDTEAbono = function(index, campo, valor) {
-    if (!abonosFactura[index]) return;
-    abonosFactura[index][campo] = valor;
-};
-
-function renderizarAbonosFactura() {
-    const tbody = document.getElementById('cuerpo-abonos');
-    tbody.innerHTML = '';
-    const totalPagar = parseFloat(document.getElementById('factura-total-pagar').textContent.replace('$', '')) || 0;
-    const multipleDTE = document.getElementById('factura-multiple-dte').checked;
-
-    let totalAbonado = 0;
-    abonosFactura.forEach((abono, index) => {
-        totalAbonado += abono.monto;
-        const porcentaje = totalPagar > 0 ? (abono.monto / totalPagar) * 100 : 0;
-        const saldo = totalPagar - totalAbonado;
-
-        let celdaDeposito = '-';
-        if (abono.metodo === 'Efectivo' || abono.metodo === 'Cheque') {
-            celdaDeposito = `
-                <div class="deposito-cell">
-                    <label>Fecha depósito:</label>
-                    <input type="date" value="${abono.fechaDeposito || ''}" onchange="guardarDepositoAbono(${index}, 'fecha', this.value)">
-                    <label>Quién depositó:</label>
-                    <input list="lista-nombres" value="${abono.nombreDeposito || ''}" placeholder="Nombre..." onchange="guardarDepositoAbono(${index}, 'nombre', this.value)">
-                </div>`;
-        }
-
-        let celdaDTE = '';
-        if (multipleDTE) {
-            celdaDTE = `
-                <td>
-                    <div class="deposito-cell">
-                        <label>Cód. Generación:</label>
-                        <input type="text" value="${abono.codigoGeneracion || ''}" placeholder="ABC-..." onchange="guardarDTEAbono(${index}, 'codigoGeneracion', this.value)">
-                        <label>N° Control:</label>
-                        <input type="text" value="${abono.numeroControl || ''}" placeholder="0001-..." onchange="guardarDTEAbono(${index}, 'numeroControl', this.value)">
-                    </div>
-                </td>`;
-        }
-
-        tbody.innerHTML += `
-            <tr>
-                <td>${abono.fecha}</td>
-                <td>${abono.metodo}</td>
-                <td>${fmt5(abono.monto)}</td>
-                <td>${porcentaje.toFixed(2)}%</td>
-                <td>${fmt5(saldo)}</td>
-                <td>${celdaDeposito}</td>
-                ${celdaDTE}
-                <td class="no-print"><button onclick="eliminarAbono(${index})" class="btn-clear" style="padding:2px 6px; font-size:12px;">X</button></td>
-            </tr>`;
-    });
-
-    if (abonosFactura.length === 0) {
-        const cols = multipleDTE ? 8 : 7;
-        tbody.innerHTML = `<tr><td colspan="${cols}" style="text-align:center; color:#999;">No hay abonos registrados</td></tr>`;
-    }
-}
-
-window.eliminarAbono = function(index) {
-    abonosFactura.splice(index, 1);
-    renderizarAbonosFactura();
-};
-
-window.guardarFactura = async function() {
-    const tipo = document.getElementById('factura-tipo').value;
-    const cliente = document.getElementById('factura-cliente-nombre').value.trim();
-    const vendedor = document.getElementById('factura-vendedor').value.trim();
-    const multipleDTE = document.getElementById('factura-multiple-dte').checked;
-
-    let codigoGeneracion = '';
-    let numeroControl = '';
-    if (!multipleDTE) {
-        codigoGeneracion = document.getElementById('factura-codigo-generacion').value.trim();
-        numeroControl = document.getElementById('factura-numero-control').value.trim();
-    } else {
-        if (abonosFactura.length === 0) return alert("Con Múltiples DTEs activado, debe registrar al menos un abono con su Código de Generación y N° de Control.");
-        for (let i = 0; i < abonosFactura.length; i++) {
-            const a = abonosFactura[i];
-            if (!a.codigoGeneracion || !a.numeroControl) {
-                return alert(`El abono #${i + 1} no tiene asignado Código de Generación y/o N° de Control.`);
-            }
-        }
-    }
-
-    if (!cliente) return alert("Ingrese el nombre del cliente.");
-    if (!vendedor) return alert("Ingrese de quién es la venta (Vendedor).");
-    if (itemsFactura.length === 0) return alert("Agregue al menos un producto.");
-
-    const subtotal = itemsFactura.reduce((sum, item) => sum + item.totalSinIva, 0);
-    const iva = subtotal * 0.13;
-    const totalConIva = subtotal + iva;
-    const retencion = tipo === 'Gran Contribuyente' ? subtotal * 0.01 : 0;
-    const totalPagar = totalConIva - retencion;
-    const totalAbonado = abonosFactura.reduce((sum, a) => sum + a.monto, 0);
-    const saldo = totalPagar - totalAbonado;
-    const estado = saldo <= 0.00001 ? 'Cancelada' : 'Pendiente';
-
-    const facturaData = {
-        userId: currentUser.uid,
-        tipo: tipo,
-        cliente: cliente,
-        vendedor: vendedor,
-        multipleDTE: multipleDTE,
-        codigoGeneracion: codigoGeneracion,
-        numeroControl: numeroControl,
-        nit: document.getElementById('factura-cliente-nit').value,
-        nrc: document.getElementById('factura-cliente-nrc').value,
-        dui: document.getElementById('factura-cliente-dui').value,
-        fecha: document.getElementById('factura-fecha').value,
-        items: itemsFactura,
-        abonos: abonosFactura,
-        subtotal: subtotal,
-        iva: iva,
-        totalConIva: totalConIva,
-        retencion: retencion,
-        totalPagar: totalPagar,
-        totalAbonado: totalAbonado,
-        saldo: saldo,
-        estado: estado,
-        fechaGuardado: new Date().toISOString()
-    };
-
-    if (facturaEditandoId) {
-        await updateDoc(doc(db, "facturas", facturaEditandoId), facturaData);
-        alert("Simulación actualizada.");
-    } else {
-        const docRef = doc(db, "configuracion", "correlativoFactura");
-        const docSnap = await getDoc(docRef);
-        const correlativo = docSnap.data().valor;
-        facturaData.correlativo = correlativo;
-        await addDoc(collection(db, "facturas"), facturaData);
-        await setDoc(docRef, { valor: correlativo + 1 });
-        alert(`Simulación guardada con correlativo interno #${correlativo}.`);
-    }
-    cancelarEdicion();
-};
-
-async function cargarListaFacturas() {
-    const tbody = document.getElementById('cuerpo-tabla-facturas');
-    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;">Cargando...</td></tr>';
-    const q = query(collection(db, "facturas"), where("userId", "==", currentUser.uid));
+async function cargarHistorialLiquidaciones() {
+    const tbody = document.getElementById('cuerpo-liquidaciones');
+    tbody.innerHTML = 'Cargando...';
+    const q = query(collection(db, "liquidaciones"), where("userId", "==", currentUser.uid));
     const snap = await getDocs(q);
     tbody.innerHTML = '';
-    if (snap.empty) {
-        tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;">No hay simulaciones guardadas.</td></tr>';
-        return;
-    }
-
-    snap.forEach(d => {
-        const f = d.data();
-        const badgeClass = f.estado === 'Cancelada' ? 'badge-success' : 'badge-warning';
-        let celdaCod = f.codigoGeneracion || '-';
-        let celdaNum = f.numeroControl || '-';
-        if (f.multipleDTE) {
-            celdaCod = `<i style="color:#856404;">Múltiples (${(f.abonos || []).length})</i>`;
-            celdaNum = `<i style="color:#856404;">Por abono</i>`;
-        }
-        tbody.innerHTML += `
-            <tr>
-                <td style="font-size:12px;">${celdaCod}</td>
-                <td style="font-size:12px;">${celdaNum}</td>
-                <td>${f.cliente}</td>
-                <td>${f.vendedor || '-'}</td>
-                <td>${f.tipo}</td>
-                <td>${fmt5(f.totalPagar)}</td>
-                <td>${fmt5(f.saldo)}</td>
-                <td><span class="badge ${badgeClass}">${f.estado}</span></td>
-                <td>
-                    <button onclick="verFactura('${d.id}')" class="btn-pdf" style="padding:4px 8px; font-size:12px;">Ver</button>
-                    <button onclick="editarFactura('${d.id}')" class="btn-draft" style="padding:4px 8px; font-size:12px;">Editar</button>
-                    <button onclick="eliminarFactura('${d.id}')" class="btn-clear" style="padding:4px 8px; font-size:12px;">Eliminar</button>
-                </td>
-            </tr>`;
+    snap.forEach(doc => {
+        const d = doc.data();
+        tbody.innerHTML += `<tr><td>${d.fechaRecibido}</td><td>$${d.totalRecibido.toFixed(2)}</td><td>$${d.totalGastos.toFixed(2)}</td><td style="color:${d.disponible < 0 ? 'red':'green'}; font-weight:bold;">$${d.disponible.toFixed(2)}</td></tr>`;
     });
 }
 
-window.verFactura = async function(id) {
-    const docSnap = await getDoc(doc(db, "facturas", id));
-    if (!docSnap.exists()) return;
-    const d = docSnap.data();
-    facturaEditandoId = id;
-    itemsFactura = d.items || [];
-    abonosFactura = d.abonos || [];
-
-    document.getElementById('factura-tipo').value = d.tipo;
-    document.getElementById('factura-vendedor').value = d.vendedor || '';
-    document.getElementById('factura-cliente-nombre').value = d.cliente;
-    document.getElementById('factura-cliente-nit').value = d.nit || '';
-    document.getElementById('factura-cliente-nrc').value = d.nrc || '';
-    document.getElementById('factura-cliente-dui').value = d.dui || '';
-    document.getElementById('factura-fecha').value = d.fecha;
-    document.getElementById('factura-multiple-dte').checked = !!d.multipleDTE;
-    document.getElementById('factura-codigo-generacion').value = d.codigoGeneracion || '';
-    document.getElementById('factura-numero-control').value = d.numeroControl || '';
-    document.getElementById('campos-dte-header').style.display = d.multipleDTE ? 'none' : 'flex';
-    document.getElementById('th-dte-abono').style.display = d.multipleDTE ? '' : 'none';
-
-    document.getElementById('formulario-factura').style.display = 'block';
-    document.getElementById('lista-facturas-container').style.display = 'none';
-    document.getElementById('modo-edicion-badge').textContent = 'Modo Solo Lectura';
-    document.getElementById('modo-edicion-badge').className = 'badge badge-danger';
-    document.getElementById('modo-edicion-badge').style.display = 'inline-block';
-
-    document.querySelectorAll('#formulario-factura input, #formulario-factura select, #formulario-factura button:not(.btn-clear)').forEach(el => el.disabled = true);
-    toggleRetencion();
-    renderizarItemsFactura();
-    renderizarAbonosFactura();
-};
-
-window.editarFactura = async function(id) {
-    const docSnap = await getDoc(doc(db, "facturas", id));
-    if (!docSnap.exists()) return;
-    const d = docSnap.data();
-    facturaEditandoId = id;
-    itemsFactura = d.items || [];
-    abonosFactura = d.abonos || [];
-
-    document.getElementById('factura-tipo').value = d.tipo;
-    document.getElementById('factura-vendedor').value = d.vendedor || '';
-    document.getElementById('factura-cliente-nombre').value = d.cliente;
-    document.getElementById('factura-cliente-nit').value = d.nit || '';
-    document.getElementById('factura-cliente-nrc').value = d.nrc || '';
-    document.getElementById('factura-cliente-dui').value = d.dui || '';
-    document.getElementById('factura-fecha').value = d.fecha;
-    document.getElementById('factura-multiple-dte').checked = !!d.multipleDTE;
-    document.getElementById('factura-codigo-generacion').value = d.codigoGeneracion || '';
-    document.getElementById('factura-numero-control').value = d.numeroControl || '';
-    document.getElementById('campos-dte-header').style.display = d.multipleDTE ? 'none' : 'flex';
-    document.getElementById('th-dte-abono').style.display = d.multipleDTE ? '' : 'none';
-
-    document.getElementById('formulario-factura').style.display = 'block';
-    document.getElementById('lista-facturas-container').style.display = 'none';
-    document.getElementById('modo-edicion-badge').textContent = 'Modo Edición';
-    document.getElementById('modo-edicion-badge').className = 'badge badge-warning';
-    document.getElementById('modo-edicion-badge').style.display = 'inline-block';
-
-    document.querySelectorAll('#formulario-factura input, #formulario-factura select, #formulario-factura button:not(.btn-clear)').forEach(el => el.disabled = false);
-    toggleRetencion();
-    renderizarItemsFactura();
-    renderizarAbonosFactura();
-};
-
-window.eliminarFactura = async function(id) {
-    if (confirm("¿Eliminar esta simulación de factura permanentemente?")) {
-        await deleteDoc(doc(db, "facturas", id));
-        cargarListaFacturas();
-    }
-};
-
-document.getElementById('abono-fecha').value = new Date().toISOString().split('T')[0];
+// ==========================================
+// INICIALIZACIÓN
+// ==========================================
+function inicializarApp() {
+    document.getElementById('btn-google-auth').disabled = true;
+    document.getElementById('liq-fecha-recibido').value = new Date().toISOString().split('T')[0];
+    
+    // Inicializar firmas de recibos
+    receiverSignature = new SmoothSignature(document.querySelector("#signature-receiver"));
+    payerSignature = new SmoothSignature(document.querySelector("#signature-payer"));
+    setNextCorrelativo();
+}
