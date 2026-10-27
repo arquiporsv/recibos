@@ -9,9 +9,9 @@
     <script src="https://unpkg.com/smooth-signature/dist/index.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-    <!-- Google APIs (Drive) -->
-    <script src="https://apis.google.com/js/api.js" onload="gapiLoaded()"></script>
-    <script src="https://accounts.google.com/gsi/client" onload="gisLoaded()" async defer></script>
+    <!-- Google APIs (Drive) - SIN onload aquí -->
+    <script src="https://apis.google.com/js/api.js"></script>
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
 
@@ -39,7 +39,6 @@
             <div class="brand">ARQUIPOR</div>
             <button class="nav-link active" onclick="switchTab('dashboard', this)">📊 Dashboard</button>
             <button class="nav-link" onclick="switchTab('recibos', this)">🧾 Recibos</button>
-            <button class="nav-link" onclick="switchTab('facturas', this)">🧮 Simulador Facturas</button>
             <button class="nav-link" onclick="switchTab('dte', this)">📑 Reporte DTE</button>
             <button class="nav-link" onclick="switchTab('arqueo', this)">💵 Arqueo de Caja</button>
             <button class="nav-link" onclick="switchTab('liquidaciones', this)">🛒 Liquidación Gastos</button>
@@ -59,7 +58,7 @@
                 <div class="card" style="margin-top:20px; background:#d9e2f3;">
                     <h3>🔗 Conexión a Google Drive</h3>
                     <p>Autoriza el acceso para que el sistema pueda crear carpetas y subir tus PDFs y JSONs automáticamente a la cuenta <b>arquiporsv@gmail.com</b>.</p>
-                    <button id="btn-google-auth" onclick="autorizarGoogleDrive()" class="btn-pdf" disabled>Conectar Google Drive</button>
+                    <button id="btn-google-auth" onclick="autorizarGoogleDrive()" class="btn-pdf" disabled>Esperando a Google...</button>
                     <p id="google-status" style="font-weight:bold; color: green; display:none; margin-top:10px;">✅ Conectado a Google Drive correctamente</p>
                 </div>
             </div>
@@ -98,12 +97,6 @@
                         <div class="signature-block"><canvas id="signature-payer" width="300" height="100"></canvas><div class="signature-line"></div><p>Firma de quien paga</p><button class="no-print clear-sig btn-clear btn-sm" onclick="clearSignature('payer')">Borrar</button></div>
                     </div>
                 </div>
-            </div>
-
-            <!-- SIMULADOR FACTURAS (Mantenido simple para no saturar) -->
-            <div id="view-facturas" class="view-section" style="display: none;">
-                <h2>Simulador de Facturas</h2>
-                <p>Utiliza la versión anterior de este módulo si lo necesitas, o solicita la integración completa.</p>
             </div>
 
             <!-- REPORTE DTE -->
