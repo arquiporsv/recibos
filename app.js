@@ -33,6 +33,52 @@ let currentReceiptId = null;
 let gastosTemp = [];
 
 // ==========================================
+// INICIALIZACIÓN DE GOOGLE API
+// ==========================================
+window.gapiLoaded = function() {
+    gapi.load('client', initializeGapiClient);
+};
+
+async function initializeGapiClient() {
+    await gapi.client.init({
+        discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'],
+    });
+    gapiInited = true;
+    maybeEnableButtons();
+}
+
+window.gisLoaded = function() {
+    tokenClient = google.accounts.oauth2.initTokenClient({
+        client_id: GOOGLE_CLIENT_ID,
+        scope: 'https://www.googleapis.com/auth/drive.file',
+        callback: (tokenResponse) => {
+            if (tokenResponse && tokenResponse.access_token) {
+                document.getElementById('google-status').style.display = 'block';
+                document.getElementById('btn-google-auth').style.display = 'none';
+            }
+        },
+    });
+    gisInited = true;
+    maybeEnableButtons();
+};
+
+function maybeEnableButtons() {
+    if (gapiInited && gisInited) {
+        const btn = document.getElementById('btn-google-auth');
+        if(btn) {
+            btn.disabled = false;
+            btn.textContent = 'Conectar Google Drive';
+        }
+    }
+}
+
+// Ejecutar las funciones de Google cuando la ventana esté lista
+window.addEventListener('load', () => {
+    if (typeof gapi !== 'undefined') gapiLoaded();
+    if (typeof google !== 'undefined') gisLoaded();
+});
+
+// ==========================================
 // AUTENTICACIÓN FIREBASE
 // ==========================================
 window.login = async function() {
@@ -78,42 +124,8 @@ window.switchTab = function(tab, btnElement) {
 };
 
 // ==========================================
-// GOOGLE DRIVE INTEGRATION
+// GOOGLE DRIVE (FUNCIONES)
 // ==========================================
-window.gapiLoaded = function() {
-    gapi.load('client', initializeGapiClient);
-};
-
-async function initializeGapiClient() {
-    await gapi.client.init({
-        discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'],
-    });
-    gapiInited = true;
-    maybeEnableButtons();
-}
-
-window.gisLoaded = function() {
-    tokenClient = google.accounts.oauth2.initTokenClient({
-        client_id: GOOGLE_CLIENT_ID,
-        scope: 'https://www.googleapis.com/auth/drive.file',
-        callback: (tokenResponse) => {
-            if (tokenResponse && tokenResponse.access_token) {
-                document.getElementById('google-status').style.display = 'block';
-                document.getElementById('btn-google-auth').style.display = 'none';
-            }
-        },
-    });
-    gisInited = true;
-    maybeEnableButtons();
-};
-
-function maybeEnableButtons() {
-    if (gapiInited && gisInited) {
-        const btn = document.getElementById('btn-google-auth');
-        if(btn) btn.disabled = false;
-    }
-}
-
 window.autorizarGoogleDrive = function() {
     if (gapi.client.getToken() === null) {
         tokenClient.requestAccessToken({ prompt: 'consent' });
@@ -122,7 +134,6 @@ window.autorizarGoogleDrive = function() {
     }
 };
 
-// Funciones de Drive
 async function obtenerOCrearCarpeta(nombre, parentId = null) {
     let query = `name='${nombre}' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
     if (parentId) query += ` and '${parentId}' in parents`;
@@ -154,7 +165,7 @@ async function subirArchivoDrive(file, folderId) {
 }
 
 // ==========================================
-// MÓDULO RECIBOS (Básico)
+// MÓDULO RECIBOS
 // ==========================================
 async function setNextCorrelativo() {
     try {
@@ -165,22 +176,28 @@ async function setNextCorrelativo() {
             const num = parseInt(doc.data().correlativo);
             if (!isNaN(num) && num > maxCorrelativo) maxCorrelativo = num;
         });
-        document.getElementById('receipt-number-value').value = maxCorrelativo + 1;
+        const inputCorr = document.getElementById('receipt-number-value');
+        if(inputCorr) inputCorr.value = maxCorrelativo + 1;
         await setDoc(doc(db, "configuracion", "correlativo"), { valor: maxCorrelativo + 1 });
     } catch (e) { console.error(e); }
 }
 
 window.clearSignature = function(t) {
-    if (t === 'receiver') receiverSignature.clear();
-    if (t === 'payer') payerSignature.clear();
+    if (t === 'receiver' && receiverSignature) receiverSignature.clear();
+    if (t === 'payer' && payerSignature) payerSignature.clear();
 };
 
 window.limpiarFormulario = async function(skipConfirm = false) {
     if (!skipConfirm && !confirm("¿Limpiar formulario?")) return;
-    ['fecha','nombre','dui','concepto','monto'].forEach(id => document.getElementById(id).value = '');
-    receiverSignature.clear(); payerSignature.clear();
+    ['fecha','nombre','dui','concepto','monto'].forEach(id => {
+        const el = document.getElementById(id);
+        if(el) el.value = '';
+    });
+    if(receiverSignature) receiverSignature.clear(); 
+    if(payerSignature) payerSignature.clear();
     currentBorradorId = null; currentReceiptId = null;
-    document.getElementById('btn-generar-pdf').textContent = 'Generar PDF';
+    const btn = document.getElementById('btn-generar-pdf');
+    if(btn) btn.textContent = 'Generar PDF';
     await setNextCorrelativo();
 };
 
@@ -366,10 +383,17 @@ const billetes = [100, 50, 20, 10, 5, 2, 1];
 const monedas = [1, 0.5, 0.25, 0.1, 0.05, 0.01];
 
 function initArqueo() {
-    document.getElementById('arqueo-fecha').value = new Date().toISOString().split('T')[0];
-    document.getElementById('arqueo-billetes').innerHTML = billetes.map(b => `<tr><td>$${b.toFixed(2)}</td><td><input type="number" class="arqueo-cant" data-val="${b}" value="0" min="0" oninput="calcularArqueo()"></td><td class="subtotal-billete">$0.00</td></tr>`).join('');
-    document.getElementById('arqueo-monedas').innerHTML = monedas.map(m => `<tr><td>$${m.toFixed(2)}</td><td><input type="number" class="arqueo-cant" data-val="${m}" value="0" min="0" oninput="calcularArqueo()"></td><td class="subtotal-moneda">$0.00</td></tr>`).join('');
-    document.getElementById('arqueo-esperado').addEventListener('input', calcularArqueo);
+    const fechaInput = document.getElementById('arqueo-fecha');
+    if(fechaInput) fechaInput.value = new Date().toISOString().split('T')[0];
+    
+    const tBilletes = document.getElementById('arqueo-billetes');
+    const tMonedas = document.getElementById('arqueo-monedas');
+    
+    if(tBilletes) tBilletes.innerHTML = billetes.map(b => `<tr><td>$${b.toFixed(2)}</td><td><input type="number" class="arqueo-cant" data-val="${b}" value="0" min="0" oninput="calcularArqueo()"></td><td class="subtotal-billete">$0.00</td></tr>`).join('');
+    if(tMonedas) tMonedas.innerHTML = monedas.map(m => `<tr><td>$${m.toFixed(2)}</td><td><input type="number" class="arqueo-cant" data-val="${m}" value="0" min="0" oninput="calcularArqueo()"></td><td class="subtotal-moneda">$0.00</td></tr>`).join('');
+    
+    const esperadoInput = document.getElementById('arqueo-esperado');
+    if(esperadoInput) esperadoInput.addEventListener('input', calcularArqueo);
 }
 
 window.calcularArqueo = function() {
@@ -501,11 +525,17 @@ async function cargarHistorialLiquidaciones() {
 // INICIALIZACIÓN
 // ==========================================
 function inicializarApp() {
-    document.getElementById('btn-google-auth').disabled = true;
-    document.getElementById('liq-fecha-recibido').value = new Date().toISOString().split('T')[0];
+    const btnGoogle = document.getElementById('btn-google-auth');
+    if(btnGoogle) btnGoogle.disabled = true;
+    
+    const fechaLiq = document.getElementById('liq-fecha-recibido');
+    if(fechaLiq) fechaLiq.value = new Date().toISOString().split('T')[0];
     
     // Inicializar firmas de recibos
-    receiverSignature = new SmoothSignature(document.querySelector("#signature-receiver"));
-    payerSignature = new SmoothSignature(document.querySelector("#signature-payer"));
+    const canvasRec = document.querySelector("#signature-receiver");
+    const canvasPag = document.querySelector("#signature-payer");
+    if(canvasRec) receiverSignature = new SmoothSignature(canvasRec);
+    if(canvasPag) payerSignature = new SmoothSignature(canvasPag);
+    
     setNextCorrelativo();
 }
