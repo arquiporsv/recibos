@@ -1,10 +1,7 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-import { getFirestore, doc, getDoc, setDoc, collection, addDoc, getDocs, query, where, deleteDoc, updateDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+import { getFirestore, collection, addDoc, getDocs, doc, updateDoc, deleteDoc, query, where } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-// ==========================================
-// CONFIGURACIÓN
-// ==========================================
 const firebaseConfig = {
   apiKey: "AIzaSyAHoBtvREojg4moDy3nOfzg_kVdFzZNngw",
   authDomain: "recibos-arquipor.firebaseapp.com",
@@ -14,72 +11,16 @@ const firebaseConfig = {
   appId: "1:430281363537:web:d30dc376ffab395a1f6870"
 };
 
-// ID de Google Cloud
-const GOOGLE_CLIENT_ID = "148923041820-euc2h5fpfjnvtb9qhq3kcqcir7fcj8f1.apps.googleusercontent.com"; 
-
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const auth = getAuth(app);
 
 let currentUser = null;
-let tokenClient;
-let gapiInited = false;
-let gisInited = false;
-
-// Variables Globales
-let receiverSignature, payerSignature;
-let currentBorradorId = null; 
-let currentReceiptId = null; 
-let gastosTemp = [];
+let productosCache = []; 
+let productoEditandoId = null;
 
 // ==========================================
-// INICIALIZACIÓN DE GOOGLE API
-// ==========================================
-window.gapiLoaded = function() {
-    gapi.load('client', initializeGapiClient);
-};
-
-async function initializeGapiClient() {
-    await gapi.client.init({
-        discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'],
-    });
-    gapiInited = true;
-    maybeEnableButtons();
-}
-
-window.gisLoaded = function() {
-    tokenClient = google.accounts.oauth2.initTokenClient({
-        client_id: GOOGLE_CLIENT_ID,
-        scope: 'https://www.googleapis.com/auth/drive.file',
-        callback: (tokenResponse) => {
-            if (tokenResponse && tokenResponse.access_token) {
-                document.getElementById('google-status').style.display = 'block';
-                document.getElementById('btn-google-auth').style.display = 'none';
-            }
-        },
-    });
-    gisInited = true;
-    maybeEnableButtons();
-};
-
-function maybeEnableButtons() {
-    if (gapiInited && gisInited) {
-        const btn = document.getElementById('btn-google-auth');
-        if(btn) {
-            btn.disabled = false;
-            btn.textContent = 'Conectar Google Drive';
-        }
-    }
-}
-
-// Ejecutar las funciones de Google cuando la ventana esté lista
-window.addEventListener('load', () => {
-    if (typeof gapi !== 'undefined') gapiLoaded();
-    if (typeof google !== 'undefined') gisLoaded();
-});
-
-// ==========================================
-// AUTENTICACIÓN FIREBASE
+// AUTENTICACIÓN
 // ==========================================
 window.login = async function() {
     const email = document.getElementById('auth-email').value;
@@ -87,12 +28,14 @@ window.login = async function() {
     try { await signInWithEmailAndPassword(auth, email, password); } 
     catch (error) { document.getElementById('auth-message').textContent = "Error: " + error.message; }
 };
+
 window.register = async function() {
     const email = document.getElementById('auth-email').value;
     const password = document.getElementById('auth-password').value;
     try { await createUserWithEmailAndPassword(auth, email, password); } 
     catch (error) { document.getElementById('auth-message').textContent = "Error: " + error.message; }
 };
+
 window.logout = function() { signOut(auth); };
 
 onAuthStateChanged(auth, (user) => {
@@ -109,433 +52,250 @@ onAuthStateChanged(auth, (user) => {
 });
 
 // ==========================================
-// NAVEGACIÓN
+// VISTA PREVIA DE LA FOTO POR URL
 // ==========================================
-window.switchTab = function(tab, btnElement) {
-    document.querySelectorAll('.view-section').forEach(v => v.style.display = 'none');
-    document.querySelectorAll('.nav-link').forEach(b => b.classList.remove('active'));
-    
-    document.getElementById(`view-${tab}`).style.display = 'block';
-    if(btnElement) btnElement.classList.add('active');
+window.actualizarPreviewFoto = function() {
+    const url = document.getElementById('prod-foto-url').value.trim();
+    const container = document.getElementById('preview-foto-container');
+    const img = document.getElementById('preview-foto');
 
-    if (tab === 'dte') cargarHistorialDTE();
-    if (tab === 'arqueo') initArqueo();
-    if (tab === 'liquidaciones') cargarHistorialLiquidaciones();
-};
-
-// ==========================================
-// GOOGLE DRIVE (FUNCIONES)
-// ==========================================
-window.autorizarGoogleDrive = function() {
-    if (gapi.client.getToken() === null) {
-        tokenClient.requestAccessToken({ prompt: 'consent' });
-    } else {
-        tokenClient.requestAccessToken({ prompt: '' });
-    }
-};
-
-async function obtenerOCrearCarpeta(nombre, parentId = null) {
-    let query = `name='${nombre}' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
-    if (parentId) query += ` and '${parentId}' in parents`;
-    
-    const response = await gapi.client.drive.files.list({ q: query, spaces: 'drive', fields: 'files(id, name)' });
-    
-    if (response.result.files.length > 0) {
-        return response.result.files[0].id;
-    } else {
-        const fileMetadata = { name: nombre, mimeType: 'application/vnd.google-apps.folder' };
-        if (parentId) fileMetadata.parents = [parentId];
-        const folder = await gapi.client.drive.files.create({ resource: fileMetadata, fields: 'id' });
-        return folder.result.id;
-    }
-}
-
-async function subirArchivoDrive(file, folderId) {
-    const metadata = { name: file.name, parents: [folderId] };
-    const form = new FormData();
-    form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
-    form.append('file', file);
-
-    const response = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
-        method: 'POST',
-        headers: new Headers({ 'Authorization': 'Bearer ' + gapi.client.getToken().access_token }),
-        body: form
-    });
-    return response.json();
-}
-
-// ==========================================
-// MÓDULO RECIBOS
-// ==========================================
-async function setNextCorrelativo() {
-    try {
-        const q = query(collection(db, "recibos_pdfs"), where("userId", "==", currentUser.uid));
-        const snap = await getDocs(q);
-        let maxCorrelativo = 46;
-        snap.forEach(doc => {
-            const num = parseInt(doc.data().correlativo);
-            if (!isNaN(num) && num > maxCorrelativo) maxCorrelativo = num;
-        });
-        const inputCorr = document.getElementById('receipt-number-value');
-        if(inputCorr) inputCorr.value = maxCorrelativo + 1;
-        await setDoc(doc(db, "configuracion", "correlativo"), { valor: maxCorrelativo + 1 });
-    } catch (e) { console.error(e); }
-}
-
-window.clearSignature = function(t) {
-    if (t === 'receiver' && receiverSignature) receiverSignature.clear();
-    if (t === 'payer' && payerSignature) payerSignature.clear();
-};
-
-window.limpiarFormulario = async function(skipConfirm = false) {
-    if (!skipConfirm && !confirm("¿Limpiar formulario?")) return;
-    ['fecha','nombre','dui','concepto','monto'].forEach(id => {
-        const el = document.getElementById(id);
-        if(el) el.value = '';
-    });
-    if(receiverSignature) receiverSignature.clear(); 
-    if(payerSignature) payerSignature.clear();
-    currentBorradorId = null; currentReceiptId = null;
-    const btn = document.getElementById('btn-generar-pdf');
-    if(btn) btn.textContent = 'Generar PDF';
-    await setNextCorrelativo();
-};
-
-window.guardarBorrador = async function() {
-    const borrador = {
-        userId: currentUser.uid, fecha: document.getElementById('fecha').value,
-        nombre: document.getElementById('nombre').value, dui: document.getElementById('dui').value,
-        concepto: document.getElementById('concepto').value, monto: document.getElementById('monto').value,
-        correlativo: document.getElementById('receipt-number-value').value,
-        firmaRecibe: receiverSignature.toDataURL(), firmaPaga: payerSignature.toDataURL(),
-        fechaGuardado: new Date().toISOString()
-    };
-    if (currentBorradorId) {
-        await updateDoc(doc(db, "borradores", currentBorradorId), borrador);
-        alert("Borrador actualizado.");
-    } else {
-        const ref = await addDoc(collection(db, "borradores"), borrador);
-        currentBorradorId = ref.id;
-        alert("Borrador guardado.");
-    }
-};
-
-window.abrirModalBorradores = async function() {
-    const modal = document.getElementById('modal-borradores');
-    const lista = document.getElementById('lista-borradores');
-    lista.innerHTML = 'Cargando...'; modal.style.display = 'block';
-    const q = query(collection(db, "borradores"), where("userId", "==", currentUser.uid));
-    const snap = await getDocs(q);
-    lista.innerHTML = '';
-    snap.forEach(d => {
-        const data = d.data();
-        lista.innerHTML += `<div class="borrador-item"><span>${data.nombre || 'Sin nombre'} - $${data.monto || '0'}</span><div><button onclick="cargarBorrador('${d.id}')" class="btn-pdf btn-sm">Cargar</button><button onclick="eliminarBorrador('${d.id}')" class="btn-clear btn-sm">Eliminar</button></div></div>`;
-    });
-};
-
-window.cerrarModalBorradores = () => document.getElementById('modal-borradores').style.display = 'none';
-
-window.cargarBorrador = async function(id) {
-    const docSnap = await getDoc(doc(db, "borradores", id));
-    if (docSnap.exists()) {
-        const d = docSnap.data();
-        currentBorradorId = id; currentReceiptId = null;
-        document.getElementById('btn-generar-pdf').textContent = 'Generar PDF';
-        document.getElementById('fecha').value = d.fecha || ''; document.getElementById('nombre').value = d.nombre || '';
-        document.getElementById('dui').value = d.dui || ''; document.getElementById('concepto').value = d.concepto || '';
-        document.getElementById('monto').value = d.monto || ''; document.getElementById('receipt-number-value').value = d.correlativo || '';
-        receiverSignature.clear(); payerSignature.clear();
-        if(d.firmaRecibe) { const img = new Image(); img.onload = () => document.getElementById('signature-receiver').getContext('2d').drawImage(img,0,0); img.src = d.firmaRecibe; }
-        if(d.firmaPaga) { const img = new Image(); img.onload = () => document.getElementById('signature-payer').getContext('2d').drawImage(img,0,0); img.src = d.firmaPaga; }
-        cerrarModalBorradores();
-    }
-};
-
-window.eliminarBorrador = async (id) => {
-    if (confirm("¿Eliminar borrador?")) { await deleteDoc(doc(db, "borradores", id)); abrirModalBorradores(); }
-};
-
-window.descargarPDF = async function() {
-    const nombre = document.getElementById('nombre').value.trim();
-    const monto = document.getElementById('monto').value.trim();
-    const correlativo = document.getElementById('receipt-number-value').value.trim();
-    if (!nombre || !monto || !correlativo) return alert("Complete Nombre, Monto y Correlativo.");
-
-    const elemento = document.getElementById('receipt-container');
-    const opciones = { margin: 0, filename: `Recibo_${correlativo}_${nombre}.pdf`, image: { type: 'jpeg', quality: 0.98 }, html2canvas: { scale: 2 }, jsPDF: { unit: 'mm', format: 'letter', orientation: 'portrait' } };
-
-    document.querySelectorAll('.clear-sig').forEach(b => b.style.display = 'none');
-    const inputCorr = document.getElementById('receipt-number-value');
-    inputCorr.style.border = 'none';
-
-    try {
-        const pdfWorker = html2pdf().set(opciones).from(elemento);
-        const pdfDataUri = await pdfWorker.toPdf().get('pdf').then(pdf => pdf.output('datauristring'));
-        await pdfWorker.save();
-
-        const payload = {
-            userId: currentUser.uid, correlativo, nombre, monto,
-            fecha: document.getElementById('fecha').value, dui: document.getElementById('dui').value,
-            concepto: document.getElementById('concepto').value,
-            firmaRecibe: receiverSignature.toDataURL(), firmaPaga: payerSignature.toDataURL(),
-            pdfBase64: pdfDataUri, fechaActualizacion: new Date().toISOString()
+    if (url) {
+        img.src = url;
+        container.style.display = 'block';
+        
+        // Si la imagen falla (link roto), ocultar
+        img.onerror = () => {
+            container.style.display = 'none';
         };
-
-        if (currentReceiptId) {
-            await updateDoc(doc(db, "recibos_pdfs", currentReceiptId), payload);
-        } else {
-            await addDoc(collection(db, "recibos_pdfs"), payload);
-        }
-        if (currentBorradorId) { await deleteDoc(doc(db, "borradores", currentBorradorId)); currentBorradorId = null; }
-        await limpiarFormulario(true);
-        alert("PDF generado y guardado.");
-    } catch (e) { alert("Error: " + e.message); } 
-    finally { document.querySelectorAll('.clear-sig').forEach(b => b.style.display = 'block'); inputCorr.style.border = '1px solid #ccc'; }
-};
-
-window.abrirModalRecibosGenerados = async function() {
-    const modal = document.getElementById('modal-recibos-generados');
-    const lista = document.getElementById('lista-recibos-generados');
-    lista.innerHTML = 'Cargando...'; modal.style.display = 'block';
-    const q = query(collection(db, "recibos_pdfs"), where("userId", "==", currentUser.uid));
-    const snap = await getDocs(q);
-    lista.innerHTML = '';
-    snap.forEach(d => {
-        const data = d.data();
-        lista.innerHTML += `<div class="borrador-item"><span>#${data.correlativo} - ${data.nombre} - $${data.monto}</span><div><button onclick="descargarReciboGuardado('${data.pdfBase64}', '${data.correlativo}')" class="btn-pdf btn-sm">Descargar</button></div></div>`;
-    });
-};
-
-window.cerrarModalRecibosGenerados = () => document.getElementById('modal-recibos-generados').style.display = 'none';
-window.descargarReciboGuardado = function(base64, corr) {
-    const link = document.createElement('a');
-    link.href = base64;
-    link.download = `Recibo_${corr}.pdf`;
-    link.click();
+    } else {
+        container.style.display = 'none';
+    }
 };
 
 // ==========================================
-// MÓDULO DTE
+// INVENTARIO
 // ==========================================
-window.procesarDTE = async function() {
-    const jsonFile = document.getElementById('dte-json').files[0];
-    const pdfFile = document.getElementById('dte-pdf').files[0];
-    if (!jsonFile) return alert("Selecciona el archivo JSON del DTE.");
+async function inicializarApp() {
+    await cargarProductos();
+}
+
+async function cargarProductos() {
+    const tbody = document.getElementById('tabla-inventario');
+    tbody.innerHTML = '<tr><td colspan="6">Cargando inventario...</td></tr>';
     
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-        try {
-            const dteData = JSON.parse(e.target.result);
-            const identificacion = dteData.identificacion;
-            const receptor = dteData.receptor;
-            const resumen = dteData.resumen;
-            
-            const codGen = identificacion.codigoGeneracion;
-            const numControl = identificacion.numeroControl;
-            const fecha = identificacion.fecEmi; 
-            const tipoDte = identificacion.tipoDte; 
-            const total = resumen.totalPagar;
-            
-            let tipoNombre = tipoDte === '01' ? 'CONSUMIDOR FINAL' : (tipoDte === '03' ? 'CREDITO FISCAL' : 'OTRO');
-
-            await addDoc(collection(db, "reportes_dte"), {
-                userId: currentUser.uid, codigoGeneracion: codGen, numeroControl: numControl,
-                fecha: fecha, tipoDte: tipoDte, tipoNombre: tipoNombre,
-                cliente: receptor.nombre, total: total, jsonOriginal: dteData
-            });
-
-            const token = gapi.client.getToken();
-            if (token) {
-                const [year, month] = fecha.split('-');
-                const rootId = await obtenerOCrearCarpeta('FACTURAS ARQUIPOR EL SALVADOR');
-                const yearId = await obtenerOCrearCarpeta(year, rootId);
-                const monthId = await obtenerOCrearCarpeta(month, yearId);
-                const tipoId = await obtenerOCrearCarpeta(tipoNombre, monthId);
-                
-                await subirArchivoDrive(jsonFile, tipoId);
-                if (pdfFile) await subirArchivoDrive(pdfFile, tipoId);
-                alert("DTE procesado y subido a Google Drive.");
-            } else {
-                alert("DTE guardado en BD (No conectado a Drive).");
-            }
-            cargarHistorialDTE();
-        } catch (error) { alert("Error al procesar JSON: " + error.message); }
-    };
-    reader.readAsText(jsonFile);
-};
-
-async function cargarHistorialDTE() {
-    const tbody = document.getElementById('cuerpo-dtes');
-    tbody.innerHTML = 'Cargando...';
-    const q = query(collection(db, "reportes_dte"), where("userId", "==", currentUser.uid));
-    const snap = await getDocs(q);
+    const q = query(collection(db, "inventario"), where("userId", "==", currentUser.uid));
+    const snapshot = await getDocs(q);
+    
+    productosCache = [];
     tbody.innerHTML = '';
-    snap.forEach(doc => {
-        const d = doc.data();
-        tbody.innerHTML += `<tr><td>${d.fecha}</td><td>${d.tipoNombre}</td><td>${d.numeroControl}</td><td>${d.cliente}</td><td>$${parseFloat(d.total).toFixed(2)}</td></tr>`;
+
+    if(snapshot.empty) {
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;">No hay productos registrados.</td></tr>';
+        return;
+    }
+
+    snapshot.forEach(doc => {
+        productosCache.push({ id: doc.id, ...doc.data() });
     });
-}
 
-// ==========================================
-// MÓDULO ARQUEO
-// ==========================================
-const billetes = [100, 50, 20, 10, 5, 2, 1];
-const monedas = [1, 0.5, 0.25, 0.1, 0.05, 0.01];
+    productosCache.sort((a, b) => a.nombre.localeCompare(b.nombre));
 
-function initArqueo() {
-    const fechaInput = document.getElementById('arqueo-fecha');
-    if(fechaInput) fechaInput.value = new Date().toISOString().split('T')[0];
-    
-    const tBilletes = document.getElementById('arqueo-billetes');
-    const tMonedas = document.getElementById('arqueo-monedas');
-    
-    if(tBilletes) tBilletes.innerHTML = billetes.map(b => `<tr><td>$${b.toFixed(2)}</td><td><input type="number" class="arqueo-cant" data-val="${b}" value="0" min="0" oninput="calcularArqueo()"></td><td class="subtotal-billete">$0.00</td></tr>`).join('');
-    if(tMonedas) tMonedas.innerHTML = monedas.map(m => `<tr><td>$${m.toFixed(2)}</td><td><input type="number" class="arqueo-cant" data-val="${m}" value="0" min="0" oninput="calcularArqueo()"></td><td class="subtotal-moneda">$0.00</td></tr>`).join('');
-    
-    const esperadoInput = document.getElementById('arqueo-esperado');
-    if(esperadoInput) esperadoInput.addEventListener('input', calcularArqueo);
-}
+    productosCache.forEach(prod => {
+        let stockTotal = 0;
+        let variantesHTML = '';
 
-window.calcularArqueo = function() {
-    let totalB = 0, totalM = 0;
-    document.querySelectorAll('#arqueo-billetes .arqueo-cant').forEach((input, i) => {
-        const sub = parseFloat(input.getAttribute('data-val')) * (parseInt(input.value) || 0);
-        document.querySelectorAll('.subtotal-billete')[i].textContent = `$${sub.toFixed(2)}`;
-        totalB += sub;
-    });
-    document.querySelectorAll('#arqueo-monedas .arqueo-cant').forEach((input, i) => {
-        const sub = parseFloat(input.getAttribute('data-val')) * (parseInt(input.value) || 0);
-        document.querySelectorAll('.subtotal-moneda')[i].textContent = `$${sub.toFixed(2)}`;
-        totalM += sub;
-    });
-    const totalEfectivo = totalB + totalM;
-    const esperado = parseFloat(document.getElementById('arqueo-esperado').value) || 0;
-    const diferencia = totalEfectivo - esperado;
-    document.getElementById('total-efectivo').textContent = `$${totalEfectivo.toFixed(2)}`;
-    document.getElementById('arqueo-diferencia').textContent = `$${diferencia.toFixed(2)}`;
-    document.getElementById('arqueo-diferencia').style.color = diferencia === 0 ? 'green' : 'red';
-};
-
-window.generarArqueoPDF = async function() {
-    const fecha = document.getElementById('arqueo-fecha').value;
-    if (!fecha) return alert("Selecciona una fecha.");
-    const elemento = document.getElementById('arqueo-container');
-    const nombreArchivo = `${fecha.split('-').reverse().join('-')}.pdf`;
-    const opciones = { margin: 10, filename: nombreArchivo, image: { type: 'jpeg', quality: 0.98 }, html2canvas: { scale: 2 }, jsPDF: { unit: 'mm', format: 'letter', orientation: 'portrait' } };
-
-    try {
-        const pdfWorker = html2pdf().set(opciones).from(elemento);
-        const pdfBlob = await pdfWorker.outputPdf('blob');
-        await addDoc(collection(db, "arqueos"), {
-            userId: currentUser.uid, fecha: fecha,
-            totalEfectivo: document.getElementById('total-efectivo').textContent,
-            diferencia: document.getElementById('arqueo-diferencia').textContent
+        prod.variantes.forEach(v => {
+            stockTotal += v.stock;
+            const colorStock = v.stock <= 0 ? 'stock-out' : 'stock-in';
+            variantesHTML += `<span class="badge">${v.medida}: $${v.precio.toFixed(2)} | <span class="${colorStock}">${v.stock} uds</span></span>`;
         });
 
-        const token = gapi.client.getToken();
-        if (token) {
-            const [year, month] = fecha.split('-');
-            const rootId = await obtenerOCrearCarpeta('ARQUEOS DE CAJA');
-            const yearId = await obtenerOCrearCarpeta(year, rootId);
-            const monthId = await obtenerOCrearCarpeta(month, yearId);
-            const file = new File([pdfBlob], nombreArchivo, { type: 'application/pdf' });
-            await subirArchivoDrive(file, monthId);
-            alert("Arqueo guardado y subido a Drive.");
-        } else { await pdfWorker.save(); alert("Arqueo descargado localmente."); }
-    } catch(e) { alert("Error: " + e.message); }
-};
+        // Si no hay foto o el link está roto, usamos un placeholder
+        const imgSrc = prod.fotoUrl ? prod.fotoUrl : 'https://via.placeholder.com/40?text=Sin+Foto';
 
-// ==========================================
-// MÓDULO LIQUIDACIONES
-// ==========================================
-window.crearNuevaLiquidacion = function() {
-    const totalRecibido = parseFloat(document.getElementById('liq-total-recibido').value);
-    const fechaRecibido = document.getElementById('liq-fecha-recibido').value;
-    if (isNaN(totalRecibido) || !fechaRecibido) return alert("Ingresa el total y la fecha recibida.");
-    gastosTemp = [];
-    document.getElementById('liq-total-recibido-view').textContent = `$${totalRecibido.toFixed(2)}`;
-    document.getElementById('liq-fechas').value = `Recibido el: ${fechaRecibido}`;
-    document.getElementById('panel-nueva-liquidacion').style.display = 'none';
-    document.getElementById('liquidacion-container').style.display = 'block';
-    document.getElementById('cuerpo-gastos').innerHTML = '';
-    agregarFilaGasto();
-    calcularLiquidacion();
-};
-
-window.agregarFilaGasto = function() {
-    const index = gastosTemp.length;
-    gastosTemp.push({ detalle: '', doc: '', fecha: '', monto: 0 });
-    const tr = document.createElement('tr');
-    tr.innerHTML = `<td>${index + 1}</td><td><input type="text" oninput="actualizarGasto(${index}, 'detalle', this.value)"></td><td><input type="text" oninput="actualizarGasto(${index}, 'doc', this.value)"></td><td><input type="date" onchange="actualizarGasto(${index}, 'fecha', this.value)"></td><td><input type="number" step="0.01" oninput="actualizarGasto(${index}, 'monto', this.value)"></td><td class="no-print"><button onclick="eliminarFilaGasto(this, ${index})" class="btn-clear btn-sm">X</button></td>`;
-    document.getElementById('cuerpo-gastos').appendChild(tr);
-};
-
-window.actualizarGasto = function(index, campo, valor) {
-    if (campo === 'monto') valor = parseFloat(valor) || 0;
-    gastosTemp[index][campo] = valor;
-    calcularLiquidacion();
-};
-
-window.eliminarFilaGasto = function(btn, index) {
-    btn.closest('tr').remove();
-    gastosTemp.splice(index, 1);
-    document.querySelectorAll('#cuerpo-gastos tr').forEach((tr, i) => {
-        tr.cells[0].textContent = i + 1;
-        tr.cells[5].innerHTML = `<button onclick="eliminarFilaGasto(this, ${i})" class="btn-clear btn-sm">X</button>`;
-    });
-    calcularLiquidacion();
-};
-
-function calcularLiquidacion() {
-    const totalGastos = gastosTemp.reduce((sum, g) => sum + (g.monto || 0), 0);
-    const totalRecibido = parseFloat(document.getElementById('liq-total-recibido').value) || 0;
-    const disponible = totalRecibido - totalGastos;
-    document.getElementById('liq-total-gastos').textContent = `$${totalGastos.toFixed(2)}`;
-    document.getElementById('liq-disponible').textContent = `$${disponible.toFixed(2)}`;
-    document.getElementById('liq-disponible').style.color = disponible >= 0 ? 'black' : 'red';
-}
-
-window.guardarLiquidacion = async function() {
-    const totalRecibido = parseFloat(document.getElementById('liq-total-recibido').value);
-    const totalGastos = gastosTemp.reduce((sum, g) => sum + (g.monto || 0), 0);
-    await addDoc(collection(db, "liquidaciones"), {
-        userId: currentUser.uid, fechaRecibido: document.getElementById('liq-fecha-recibido').value,
-        totalRecibido: totalRecibido, totalGastos: totalGastos,
-        disponible: totalRecibido - totalGastos, gastos: gastosTemp, fechaGuardado: new Date().toISOString()
-    });
-    alert("Liquidación guardada.");
-    document.getElementById('panel-nueva-liquidacion').style.display = 'block';
-    document.getElementById('liquidacion-container').style.display = 'none';
-    cargarHistorialLiquidaciones();
-};
-
-async function cargarHistorialLiquidaciones() {
-    const tbody = document.getElementById('cuerpo-liquidaciones');
-    tbody.innerHTML = 'Cargando...';
-    const q = query(collection(db, "liquidaciones"), where("userId", "==", currentUser.uid));
-    const snap = await getDocs(q);
-    tbody.innerHTML = '';
-    snap.forEach(doc => {
-        const d = doc.data();
-        tbody.innerHTML += `<tr><td>${d.fechaRecibido}</td><td>$${d.totalRecibido.toFixed(2)}</td><td>$${d.totalGastos.toFixed(2)}</td><td style="color:${d.disponible < 0 ? 'red':'green'}; font-weight:bold;">$${d.disponible.toFixed(2)}</td></tr>`;
+        tbody.innerHTML += `
+            <tr>
+                <td><img src="${imgSrc}" class="img-thumb" onerror="this.src='https://via.placeholder.com/40?text=Error'"></td>
+                <td><b>${prod.nombre}</b></td>
+                <td>${prod.categoria}</td>
+                <td>${variantesHTML}</td>
+                <td><b>${stockTotal}</b></td>
+                <td>
+                    <button onclick="editarProducto('${prod.id}')" class="btn-draft btn-sm">✏️ Editar</button>
+                    <button onclick="eliminarProducto('${prod.id}')" class="btn-clear btn-sm">🗑️</button>
+                </td>
+            </tr>
+        `;
     });
 }
 
 // ==========================================
-// INICIALIZACIÓN
+// MODAL PRODUCTO
 // ==========================================
-function inicializarApp() {
-    const btnGoogle = document.getElementById('btn-google-auth');
-    if(btnGoogle) btnGoogle.disabled = true;
+window.abrirModalProducto = function() {
+    productoEditandoId = null;
+    document.getElementById('modal-prod-titulo').textContent = 'Nuevo Producto';
+    document.getElementById('prod-nombre').value = '';
+    document.getElementById('prod-categoria').value = '';
+    document.getElementById('prod-foto-url').value = '';
+    document.getElementById('preview-foto-container').style.display = 'none';
+    document.getElementById('contenedor-variantes').innerHTML = '';
     
-    const fechaLiq = document.getElementById('liq-fecha-recibido');
-    if(fechaLiq) fechaLiq.value = new Date().toISOString().split('T')[0];
+    agregarFilaVariante();
+    document.getElementById('modal-producto').style.display = 'block';
+};
+
+window.cerrarModalProducto = () => document.getElementById('modal-producto').style.display = 'none';
+
+window.agregarFilaVariante = function(medida = '', precio = '', stock = '') {
+    const container = document.getElementById('contenedor-variantes');
+    const div = document.createElement('div');
+    div.className = 'variante-row';
+    div.innerHTML = `
+        <input type="text" placeholder="Medida (Ej. S, M, Grande)" value="${medida}" class="var-medida">
+        <input type="number" placeholder="Precio $" step="0.01" value="${precio}" class="var-precio">
+        <input type="number" placeholder="Stock inicial" value="${stock}" class="var-stock">
+        <button class="btn-remove-row" onclick="this.parentElement.remove()">X</button>
+    `;
+    container.appendChild(div);
+};
+
+window.guardarProducto = async function() {
+    const nombre = document.getElementById('prod-nombre').value.trim();
+    const categoria = document.getElementById('prod-categoria').value.trim();
+    const fotoUrl = document.getElementById('prod-foto-url').value.trim();
     
-    // Inicializar firmas de recibos
-    const canvasRec = document.querySelector("#signature-receiver");
-    const canvasPag = document.querySelector("#signature-payer");
-    if(canvasRec) receiverSignature = new SmoothSignature(canvasRec);
-    if(canvasPag) payerSignature = new SmoothSignature(canvasPag);
+    if (!nombre || !categoria) return alert("Nombre y Categoría son obligatorios.");
+
+    const filas = document.querySelectorAll('.variante-row');
+    const variantes = [];
     
-    setNextCorrelativo();
-}
+    filas.forEach(fila => {
+        const medida = fila.querySelector('.var-medida').value.trim();
+        const precio = parseFloat(fila.querySelector('.var-precio').value);
+        const stock = parseInt(fila.querySelector('.var-stock').value) || 0;
+        
+        if (medida && !isNaN(precio)) {
+            variantes.push({ medida, precio, stock });
+        }
+    });
+
+    if (variantes.length === 0) return alert("Debes agregar al menos una variante con medida y precio válido.");
+
+    const payload = {
+        userId: currentUser.uid,
+        nombre,
+        categoria,
+        fotoUrl, // Guardamos el enlace de texto, no la imagen
+        variantes,
+        fechaActualizacion: new Date().toISOString()
+    };
+
+    try {
+        if (productoEditandoId) {
+            await updateDoc(doc(db, "inventario", productoEditandoId), payload);
+            alert("Producto actualizado correctamente.");
+        } else {
+            payload.fechaCreacion = new Date().toISOString();
+            await addDoc(collection(db, "inventario"), payload);
+            alert("Producto creado correctamente.");
+        }
+        cerrarModalProducto();
+        await cargarProductos();
+    } catch (e) {
+        alert("Error al guardar: " + e.message);
+    }
+};
+
+window.editarProducto = function(id) {
+    const prod = productosCache.find(p => p.id === id);
+    if (!prod) return;
+
+    productoEditandoId = id;
+    document.getElementById('modal-prod-titulo').textContent = 'Editar Producto';
+    document.getElementById('prod-nombre').value = prod.nombre;
+    document.getElementById('prod-categoria').value = prod.categoria;
+    document.getElementById('prod-foto-url').value = prod.fotoUrl || '';
+    
+    actualizarPreviewFoto();
+
+    document.getElementById('contenedor-variantes').innerHTML = '';
+    prod.variantes.forEach(v => agregarFilaVariante(v.medida, v.precio, v.stock));
+
+    document.getElementById('modal-producto').style.display = 'block';
+};
+
+window.eliminarProducto = async function(id) {
+    if(confirm("¿Estás seguro de eliminar este producto del inventario?")) {
+        await deleteDoc(doc(db, "inventario", id));
+        await cargarProductos();
+    }
+};
+
+// ==========================================
+// MOVIMIENTO DE STOCK
+// ==========================================
+window.abrirModalMovimiento = function() {
+    const select = document.getElementById('mov-producto');
+    select.innerHTML = '<option value="">-- Seleccionar --</option>';
+    productosCache.forEach(p => {
+        select.innerHTML += `<option value="${p.id}">${p.nombre}</option>`;
+    });
+    
+    document.getElementById('mov-variante').innerHTML = '<option value="">-- Seleccione producto primero --</option>';
+    document.getElementById('mov-cantidad').value = '1';
+    document.getElementById('modal-movimiento').style.display = 'block';
+};
+
+window.cerrarModalMovimiento = () => document.getElementById('modal-movimiento').style.display = 'none';
+
+window.cargarVariantesMovimiento = function() {
+    const prodId = document.getElementById('mov-producto').value;
+    const selectVar = document.getElementById('mov-variante');
+    selectVar.innerHTML = '';
+
+    if (!prodId) {
+        selectVar.innerHTML = '<option value="">-- Seleccione producto primero --</option>';
+        return;
+    }
+
+    const prod = productosCache.find(p => p.id === prodId);
+    prod.variantes.forEach((v, index) => {
+        selectVar.innerHTML += `<option value="${index}">${v.medida} (Stock actual: ${v.stock})</option>`;
+    });
+};
+
+window.registrarMovimiento = async function() {
+    const prodId = document.getElementById('mov-producto').value;
+    const varIndex = document.getElementById('mov-variante').value;
+    const tipo = document.getElementById('mov-tipo').value;
+    const cantidad = parseInt(document.getElementById('mov-cantidad').value);
+
+    if (!prodId || varIndex === "" || isNaN(cantidad) || cantidad <= 0) {
+        return alert("Complete todos los campos correctamente.");
+    }
+
+    const prod = productosCache.find(p => p.id === prodId);
+    let stockActual = prod.variantes[varIndex].stock;
+
+    let nuevoStock = stockActual;
+    if (tipo === 'entrada') {
+        nuevoStock += cantidad;
+    } else {
+        if (cantidad > stockActual) return alert("No hay suficiente stock para realizar esta salida.");
+        nuevoStock -= cantidad;
+    }
+
+    prod.variantes[varIndex].stock = nuevoStock;
+    
+    try {
+        await updateDoc(doc(db, "inventario", prodId), {
+            variantes: prod.variantes
+        });
+        alert("Movimiento registrado exitosamente.");
+        cerrarModalMovimiento();
+        await cargarProductos();
+    } catch (e) {
+        alert("Error al registrar movimiento: " + e.message);
+    }
+};
