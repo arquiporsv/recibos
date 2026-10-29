@@ -1,0 +1,4 @@
+.public-header { background: #2c3e50; }
+.public-img { height: 250px; width: 100%; object-fit: contain; background-color: #f8f9fa; padding: 15px; border-top-left-radius: 8px; border-top-right-radius: 8px; }
+.public-card { transition: transform 0.2s; }
+.public-card:hover { transform: translateY(-5px); }
