@@ -4,28 +4,42 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ERP - Inventario</title>
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
 
+    <!-- PANTALLA DE LOGIN -->
     <div id="auth-container" class="auth-container">
-        <div class="auth-box">
-            <h2>Acceso al Sistema</h2>
-            <input type="email" id="auth-email" placeholder="Correo electrónico">
-            <input type="password" id="auth-password" placeholder="Contraseña">
-            <button onclick="login()">Ingresar</button>
-            <button onclick="register()" class="btn-secondary">Registrarse</button>
-            <p id="auth-message" class="error-msg"></p>
+        <div class="auth-box shadow">
+            <h2 class="text-center mb-4">Acceso al Sistema</h2>
+            <input type="email" id="auth-email" class="form-control mb-3" placeholder="Correo electrónico">
+            <input type="password" id="auth-password" class="form-control mb-3" placeholder="Contraseña">
+            <button onclick="login()" class="btn btn-primary w-100 mb-2">Ingresar</button>
+            <button onclick="register()" class="btn btn-secondary w-100">Registrarse</button>
+            <p id="auth-message" class="text-danger mt-3 text-center"></p>
         </div>
     </div>
 
+    <!-- VISTA PÚBLICA (Solo lectura) -->
+    <div id="public-container" style="display: none; width: 100%; min-height: 100vh; background: #f8f9fa; padding: 20px;">
+        <div class="container">
+            <h2 class="text-center my-4" id="public-title">Catálogo de Inventario</h2>
+            <div class="row" id="public-inventario-grid">
+                <!-- Se llena con JS -->
+            </div>
+        </div>
+    </div>
+
+    <!-- APLICACIÓN PRINCIPAL (Privada) -->
     <div id="app-container" style="display: none;">
         <div class="sidebar">
             <div class="brand">Mi ERP</div>
             <button class="nav-link active">📦 Inventario</button>
-            <div class="user-info">
+            <div class="user-info mt-auto">
                 <span id="user-email-display"></span>
-                <button onclick="logout()" class="btn-clear btn-sm" style="margin-top:10px;">Salir</button>
+                <button onclick="logout()" class="btn btn-danger btn-sm w-100 mt-2">Salir</button>
             </div>
         </div>
 
@@ -34,14 +48,15 @@
                 <div class="header-actions">
                     <h2>Gestión de Inventario</h2>
                     <div>
-                        <button onclick="abrirModalMovimiento()" class="btn-draft">🔄 Movimiento de Stock</button>
-                        <button onclick="abrirModalProducto()" class="btn-pdf">+ Nuevo Producto</button>
+                        <button onclick="copiarEnlacePublico()" class="btn btn-success">🔗 Compartir Catálogo</button>
+                        <button onclick="abrirModalMovimiento()" class="btn btn-warning text-white">🔄 Movimiento de Stock</button>
+                        <button onclick="abrirModalProducto()" class="btn btn-primary">+ Nuevo Producto</button>
                     </div>
                 </div>
 
-                <div class="card">
-                    <table class="data-table">
-                        <thead>
+                <div class="card p-3">
+                    <table class="table table-hover align-middle">
+                        <thead class="table-light">
                             <tr>
                                 <th>Foto</th>
                                 <th>Producto</th>
@@ -59,77 +74,140 @@
     </div>
 
     <!-- MODAL: CREAR/EDITAR PRODUCTO -->
-    <div id="modal-producto" class="modal">
-        <div class="modal-content" style="width: 60%; max-width: 800px;">
-            <span class="close" onclick="cerrarModalProducto()">&times;</span>
-            <h2 id="modal-prod-titulo">Nuevo Producto</h2>
-            
-            <div class="grid-2-col">
-                <div>
-                    <label>Nombre del Producto:</label>
-                    <input type="text" id="prod-nombre" placeholder="Ej. Camisa Polo">
+    <div class="modal fade" id="modal-producto" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="modal-prod-titulo">Nuevo Producto</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
-                <div>
-                    <label>Categoría:</label>
-                    <input type="text" id="prod-categoria" placeholder="Ej. Ropa">
+                <div class="modal-body">
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label>Nombre del Producto:</label>
+                            <input type="text" id="prod-nombre" class="form-control" placeholder="Ej. Camisa Polo">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label>Categoría:</label>
+                            <div class="input-group">
+                                <select id="prod-categoria" class="form-select"></select>
+                                <button class="btn btn-outline-secondary" onclick="abrirModalCategoria()" title="Gestionar Categorías">⚙️</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label>Enlace Directo de la Foto (URL):</label>
+                        <input type="url" id="prod-foto-url" class="form-control" placeholder="https://ejemplo.com/foto.jpg" oninput="actualizarPreviewFoto()">
+                        <div id="preview-foto-container" class="mt-2" style="display: none;">
+                            <img id="preview-foto" src="" style="max-width: 100px; max-height: 100px; border-radius: 4px; object-fit: cover;">
+                        </div>
+                    </div>
+
+                    <hr>
+                    <h6>Variantes (Medidas/Tamaños)</h6>
+                    <div id="contenedor-variantes"></div>
+                    <button onclick="agregarFilaVariante()" class="btn btn-sm btn-outline-primary mt-2">+ Añadir Medida</button>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button onclick="guardarProducto()" class="btn btn-primary">Guardar Producto</button>
                 </div>
             </div>
+        </div>
+    </div>
 
-            <div style="margin: 15px 0;">
-                <label>Enlace Directo de la Foto (URL):</label>
-                <input type="url" id="prod-foto-url" placeholder="https://ejemplo.com/foto.jpg" oninput="actualizarPreviewFoto()">
-                <div id="preview-foto-container" style="margin-top: 10px; display: none;">
-                    <img id="preview-foto" src="" style="max-width: 100px; max-height: 100px; border-radius: 4px; object-fit: cover;">
+    <!-- MODAL: GESTIONAR CATEGORÍAS -->
+    <div class="modal fade" id="modal-categoria" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Gestionar Categorías</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
-            </div>
-
-            <hr>
-            <h4>Variantes (Medidas/Tamaños)</h4>
-            <div id="contenedor-variantes"></div>
-            <button onclick="agregarFilaVariante()" class="btn-draft btn-sm" style="margin-bottom: 15px;">+ Añadir Medida</button>
-
-            <div class="modal-footer">
-                <button onclick="guardarProducto()" class="btn-pdf" id="btn-guardar-prod">Guardar Producto</button>
+                <div class="modal-body">
+                    <div class="input-group mb-3">
+                        <input type="text" id="nueva-categoria-nombre" class="form-control" placeholder="Nueva categoría...">
+                        <button class="btn btn-primary" onclick="guardarCategoria()">Agregar</button>
+                    </div>
+                    <ul class="list-group" id="lista-categorias"></ul>
+                </div>
             </div>
         </div>
     </div>
 
     <!-- MODAL: MOVIMIENTO DE STOCK -->
-    <div id="modal-movimiento" class="modal">
-        <div class="modal-content">
-            <span class="close" onclick="cerrarModalMovimiento()">&times;</span>
-            <h2>Movimiento de Stock</h2>
-            
-            <label>Producto:</label>
-            <select id="mov-producto" onchange="cargarVariantesMovimiento()">
-                <option value="">-- Seleccionar --</option>
-            </select>
-
-            <label>Variante / Medida:</label>
-            <select id="mov-variante">
-                <option value="">-- Seleccione producto primero --</option>
-            </select>
-
-            <div class="grid-2-col" style="margin-top: 15px;">
-                <div>
-                    <label>Tipo de Movimiento:</label>
-                    <select id="mov-tipo">
-                        <option value="entrada">Entrada (Ingreso)</option>
-                        <option value="salida">Salida (Egreso/Venta)</option>
-                    </select>
+    <div class="modal fade" id="modal-movimiento" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Movimiento de Stock</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
-                <div>
-                    <label>Cantidad:</label>
-                    <input type="number" id="mov-cantidad" min="1" value="1">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label>Producto:</label>
+                        <select id="mov-producto" class="form-select" onchange="cargarVariantesMovimiento()">
+                            <option value="">-- Seleccionar --</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label>Variante / Medida:</label>
+                        <select id="mov-variante" class="form-select">
+                            <option value="">-- Seleccione producto primero --</option>
+                        </select>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label>Tipo:</label>
+                            <select id="mov-tipo" class="form-select">
+                                <option value="entrada">Entrada (Ingreso)</option>
+                                <option value="salida">Salida (Egreso/Venta)</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label>Cantidad:</label>
+                            <input type="number" id="mov-cantidad" class="form-control" min="1" value="1">
+                        </div>
+                    </div>
+                    <hr>
+                    <p class="text-muted small">Opcional (Relacionado a DTE):</p>
+                    <div class="mb-2">
+                        <label>Código de Generación:</label>
+                        <input type="text" id="mov-codigo-gen" class="form-control form-control-sm" placeholder="Ej. ABC-123...">
+                    </div>
+                    <div class="mb-2">
+                        <label>N° de DTE:</label>
+                        <input type="text" id="mov-num-dte" class="form-control form-control-sm" placeholder="Ej. DTE-01-...">
+                    </div>
                 </div>
-            </div>
-
-            <div class="modal-footer">
-                <button onclick="registrarMovimiento()" class="btn-pdf">Registrar Movimiento</button>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button onclick="registrarMovimiento()" class="btn btn-primary">Registrar Movimiento</button>
+                </div>
             </div>
         </div>
     </div>
 
+    <!-- Modal de Confirmación Personalizado (Bootstrap) -->
+    <div class="modal fade" id="modal-confirmacion" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Confirmación</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body" id="confirmacion-mensaje"></div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="button" class="btn btn-danger" id="btn-confirmar-accion">Sí, continuar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bootstrap JS Bundle -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script type="module" src="app.js"></script>
 </body>
 </html>
