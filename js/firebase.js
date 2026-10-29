@@ -13,9 +13,8 @@ const firebaseConfig = {
 
 export const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app);
-export const auth = getAuth(app);
+export const auth = getAuth(app); // Se declara UNA SOLA VEZ aquí
 
-// Utilidades compartidas
 export function showAlert(titulo, mensaje, tipo = 'primary') {
     const container = document.createElement('div');
     container.className = 'toast-container position-fixed bottom-0 end-0 p-3';
@@ -47,13 +46,12 @@ export function showConfirm(mensaje) {
     });
 }
 
-// Verificador de sesión para páginas privadas
 export function checkAuth(callback) {
     onAuthStateChanged(auth, (user) => {
         if (user) {
             callback(user);
         } else {
-            window.location.href = 'index.html'; // Redirigir al login si no hay sesión
+            window.location.href = 'index.html';
         }
     });
 }
