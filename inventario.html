@@ -15,7 +15,6 @@
             <div class="brand">Mi ERP</div>
             <nav class="nav-menu">
                 <button class="nav-link active">📦 Inventario</button>
-                <!-- Futuros módulos aquí -->
             </nav>
             <div class="user-info mt-auto">
                 <span id="user-email-display" class="d-block text-truncate small"></span>
@@ -39,10 +38,10 @@
                     <thead class="table-light">
                         <tr>
                             <th>Foto</th>
-                            <th>Producto / Descripción</th>
+                            <th>Producto</th>
                             <th>Categoría</th>
-                            <th>Variantes</th>
-                            <th>Stock Total</th>
+                            <th>Variantes / Stock</th>
+                            <th>Dañadas / Amarillas</th>
                             <th>Acciones</th>
                         </tr>
                     </thead>
@@ -87,10 +86,46 @@
                                 <img id="preview-foto" src="" class="img-preview">
                             </div>
                         </div>
+
+                        <!-- CHECKBOX POSITIVO Y NEGATIVO -->
+                        <div class="form-check form-switch mb-3 bg-light p-2 rounded">
+                            <input class="form-check-input" type="checkbox" id="prod-check-pos-neg" onchange="togglePosNegInputs()">
+                            <label class="form-check-label fw-bold" for="prod-check-pos-neg">¿Tiene Positivo y Negativo? (Mismo precio/medida)</label>
+                        </div>
+
                         <hr>
-                        <h6>Variantes</h6>
+                        <h6>Variantes (Medidas / Precios)</h6>
                         <div id="contenedor-variantes"></div>
-                        <button onclick="agregarFilaVariante()" class="btn btn-sm btn-outline-primary mt-2">+ Añadir Medida</button>
+                        <button onclick="agregarFilaVariante()" class="btn btn-sm btn-outline-primary mt-2 mb-3">+ Añadir Medida</button>
+
+                        <!-- CHECKBOX DAÑADAS -->
+                        <div class="form-check form-switch mb-3 bg-light p-2 rounded">
+                            <input class="form-check-input" type="checkbox" id="prod-check-danadas" onchange="toggleDanadasSection()">
+                            <label class="form-check-label fw-bold" for="prod-check-danadas">¿Registrar Ítems Dañados / Amarillas?</label>
+                        </div>
+
+                        <!-- SECCIÓN DAÑADAS (Oculta por defecto) -->
+                        <div id="seccion-danadas" style="display: none;" class="p-3 border rounded bg-white mb-3">
+                            <h6 class="text-danger">Registro de Dañadas / Amarillas</h6>
+                            <div class="row align-items-end mb-3">
+                                <div class="col-md-5">
+                                    <label class="small">Seleccionar Medida / Tipo:</label>
+                                    <select id="danadas-medida" class="form-select form-select-sm">
+                                        <!-- Se llena dinámicamente -->
+                                    </select>
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="small">Cantidad:</label>
+                                    <input type="number" id="danadas-cantidad" class="form-control form-control-sm" min="1" value="1">
+                                </div>
+                                <div class="col-md-3">
+                                    <button onclick="agregarItemDanado()" class="btn btn-sm btn-outline-danger w-100">+ Agregar</button>
+                                </div>
+                            </div>
+                            <ul class="list-group list-group-flush" id="lista-danadas">
+                                <!-- Lista temporal de dañadas antes de guardar -->
+                            </ul>
+                        </div>
                     </div>
                     <div class="modal-footer">
                         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
@@ -104,10 +139,7 @@
         <div class="modal fade" id="modal-categoria" tabindex="-1">
             <div class="modal-dialog">
                 <div class="modal-content">
-                    <div class="modal-header">
-                        <h5 class="modal-title">Categorías</h5>
-                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                    </div>
+                    <div class="modal-header"><h5 class="modal-title">Categorías</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
                     <div class="modal-body">
                         <div class="input-group mb-3">
                             <input type="text" id="nueva-categoria-nombre" class="form-control" placeholder="Nueva...">
@@ -123,10 +155,7 @@
         <div class="modal fade" id="modal-movimiento" tabindex="-1">
             <div class="modal-dialog">
                 <div class="modal-content">
-                    <div class="modal-header">
-                        <h5 class="modal-title">Movimiento de Stock</h5>
-                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                    </div>
+                    <div class="modal-header"><h5 class="modal-title">Movimiento de Stock</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
                     <div class="modal-body">
                         <div class="mb-3">
                             <label>Producto:</label>
@@ -136,9 +165,17 @@
                             <label>Variante:</label>
                             <select id="mov-variante" class="form-select"></select>
                         </div>
+                        <!-- Selector de Positivo/Negativo (solo aparece si el producto lo tiene) -->
+                        <div class="mb-3" id="mov-tipo-stock-container" style="display: none;">
+                            <label>Tipo de Stock a Mover:</label>
+                            <select id="mov-tipo-stock" class="form-select">
+                                <option value="positivo">Positivo (Terminado)</option>
+                                <option value="negativo">Negativo (Molde)</option>
+                            </select>
+                        </div>
                         <div class="row">
                             <div class="col-md-6 mb-3">
-                                <label>Tipo:</label>
+                                <label>Tipo Movimiento:</label>
                                 <select id="mov-tipo" class="form-select">
                                     <option value="entrada">Entrada</option>
                                     <option value="salida">Salida</option>
@@ -152,10 +189,6 @@
                         <div class="mb-3">
                             <label>Comentario:</label>
                             <input type="text" id="mov-comentario" class="form-control form-control-sm">
-                        </div>
-                        <div class="row">
-                            <div class="col-md-6 mb-2"><input type="text" id="mov-codigo-gen" class="form-control form-control-sm" placeholder="Cód. Generación"></div>
-                            <div class="col-md-6 mb-2"><input type="text" id="mov-num-dte" class="form-control form-control-sm" placeholder="N° DTE"></div>
                         </div>
                     </div>
                     <div class="modal-footer">
