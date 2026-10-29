@@ -17,88 +17,236 @@ const auth = getAuth(app);
 
 let currentUser = null;
 let productosCache = []; 
+let categoriasCache = [];
 let productoEditandoId = null;
 
 // ==========================================
-// AUTENTICACIÓN
+// UTILIDADES (MODALES BOOTSTRAP)
 // ==========================================
+function showAlert(titulo, mensaje, tipo = 'primary') {
+    // Crear un toast de Bootstrap dinámico
+    const toastHTML = `
+        <div class="toast align-items-center text-bg-${tipo} border-0" role="alert" aria-live="assertive" aria-atomic="true">
+            <div class="d-flex">
+                <div class="toast-body">
+                    <strong>${titulo}:</strong> ${mensaje}
+                </div>
+                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+            </div>
+        </div>
+    `;
+    const container = document.createElement('div');
+    container.className = 'toast-container position-fixed bottom-0 end-0 p-3';
+    container.innerHTML = toastHTML;
+    document.body.appendChild(container);
+    const toastElement = container.querySelector('.toast');
+    const bsToast = new bootstrap.Toast(toastElement, { delay: 3000 });
+    bsToast.show();
+    toastElement.addEventListener('hidden.bs.toast', () => container.remove());
+}
+
+function showConfirm(mensaje) {
+    return new Promise((resolve) => {
+        document.getElementById('confirmacion-mensaje').innerHTML = mensaje;
+        const modalEl = document.getElementById('modal-confirmacion');
+        const modal = new bootstrap.Modal(modalEl);
+        
+        const btnConfirm = document.getElementById('btn-confirmar-accion');
+        // Clonar el botón para eliminar event listeners antiguos
+        const newBtn = btnConfirm.cloneNode(true);
+        btnConfirm.parentNode.replaceChild(newBtn, btnConfirm);
+        
+        newBtn.addEventListener('click', () => {
+            modal.hide();
+            resolve(true);
+        });
+
+        modalEl.addEventListener('hidden.bs.modal', () => {
+            resolve(false);
+        }, { once: true });
+
+        modal.show();
+    });
+}
+
+// ==========================================
+// INICIALIZACIÓN Y FLUJO (PÚBLICO / PRIVADO)
+// ==========================================
+const urlParams = new URLSearchParams(window.location.search);
+const isPublicView = urlParams.get('publico') === 'true';
+const publicUid = urlParams.get('uid');
+
+if (isPublicView && publicUid) {
+    // MODO PÚBLICO
+    document.getElementById('auth-container').style.display = 'none';
+    document.getElementById('app-container').style.display = 'none';
+    document.getElementById('public-container').style.display = 'block';
+    cargarInventarioPublico(publicUid);
+} else {
+    // MODO PRIVADO (AUTH)
+    onAuthStateChanged(auth, (user) => {
+        if (user) {
+            currentUser = user;
+            document.getElementById('auth-container').style.display = 'none';
+            document.getElementById('app-container').style.display = 'flex';
+            document.getElementById('user-email-display').textContent = user.email;
+            inicializarAppPrivada();
+        } else {
+            document.getElementById('auth-container').style.display = 'flex';
+            document.getElementById('app-container').style.display = 'none';
+        }
+    });
+}
+
 window.login = async function() {
     const email = document.getElementById('auth-email').value;
     const password = document.getElementById('auth-password').value;
     try { await signInWithEmailAndPassword(auth, email, password); } 
-    catch (error) { document.getElementById('auth-message').textContent = "Error: " + error.message; }
+    catch (error) { showAlert('Error', error.message, 'danger'); }
 };
 
 window.register = async function() {
     const email = document.getElementById('auth-email').value;
     const password = document.getElementById('auth-password').value;
     try { await createUserWithEmailAndPassword(auth, email, password); } 
-    catch (error) { document.getElementById('auth-message').textContent = "Error: " + error.message; }
+    catch (error) { showAlert('Error', error.message, 'danger'); }
 };
 
 window.logout = function() { signOut(auth); };
 
-onAuthStateChanged(auth, (user) => {
-    if (user) {
-        currentUser = user;
-        document.getElementById('auth-container').style.display = 'none';
-        document.getElementById('app-container').style.display = 'flex';
-        document.getElementById('user-email-display').textContent = user.email;
-        inicializarApp();
-    } else {
-        document.getElementById('auth-container').style.display = 'flex';
-        document.getElementById('app-container').style.display = 'none';
-    }
-});
-
 // ==========================================
-// VISTA PREVIA DE LA FOTO POR URL
+// VISTA PÚBLICA (SOLO LECTURA)
 // ==========================================
-window.actualizarPreviewFoto = function() {
-    const url = document.getElementById('prod-foto-url').value.trim();
-    const container = document.getElementById('preview-foto-container');
-    const img = document.getElementById('preview-foto');
+async function cargarInventarioPublico(uid) {
+    const grid = document.getElementById('public-inventario-grid');
+    grid.innerHTML = '<div class="col-12 text-center"><div class="spinner-border text-primary"></div></div>';
 
-    if (url) {
-        img.src = url;
-        container.style.display = 'block';
-        
-        // Si la imagen falla (link roto), ocultar
-        img.onerror = () => {
-            container.style.display = 'none';
-        };
-    } else {
-        container.style.display = 'none';
+    const q = query(collection(db, "inventario"), where("userId", "==", uid));
+    const snapshot = await getDocs(q);
+    
+    grid.innerHTML = '';
+
+    if (snapshot.empty) {
+        grid.innerHTML = '<div class="col-12 text-center text-muted">Catálogo vacío.</div>';
+        return;
     }
+
+    let prods = [];
+    snapshot.forEach(doc => prods.push(doc.data()));
+    prods.sort((a, b) => a.nombre.localeCompare(b.nombre));
+
+    prods.forEach(prod => {
+        let variantesHTML = '';
+        prod.variantes.forEach(v => {
+            const stockText = v.stock > 0 ? `<span class="text-success">Disponible: ${v.stock}</span>` : `<span class="text-danger">Agotado</span>`;
+            variantesHTML += `<li class="list-group-item d-flex justify-content-between align-items-center">
+                ${v.medida} - $${v.precio.toFixed(2)} <small>${stockText}</small>
+            </li>`;
+        });
+
+        const imgSrc = prod.fotoUrl ? prod.fotoUrl : 'https://via.placeholder.com/300x200?text=Sin+Foto';
+
+        grid.innerHTML += `
+            <div class="col-md-4 mb-4">
+                <div class="card public-card h-100 shadow-sm border-0">
+                    <img src="${imgSrc}" class="card-img-top public-img" onerror="this.src='https://via.placeholder.com/300x200?text=Error'">
+                    <div class="card-body">
+                        <span class="badge bg-secondary mb-2">${prod.categoria}</span>
+                        <h5 class="card-title fw-bold">${prod.nombre}</h5>
+                    </div>
+                    <ul class="list-group list-group-flush">
+                        ${variantesHTML}
+                    </ul>
+                </div>
+            </div>
+        `;
+    });
+}
+
+window.copiarEnlacePublico = function() {
+    const baseUrl = window.location.origin + window.location.pathname;
+    const publicUrl = `${baseUrl}?publico=true&uid=${currentUser.uid}`;
+    
+    navigator.clipboard.writeText(publicUrl).then(() => {
+        showAlert('Éxito', 'Enlace copiado al portapapeles. Compártelo con tus clientes.', 'success');
+    }).catch(err => {
+        showAlert('Enlace de tu catálogo', publicUrl, 'info'); // Fallback
+    });
 };
 
 // ==========================================
-// INVENTARIO
+// MODO PRIVADO (GESTIÓN)
 // ==========================================
-async function inicializarApp() {
+async function inicializarAppPrivada() {
+    await cargarCategorias();
     await cargarProductos();
 }
 
+// --- CATEGORÍAS ---
+async function cargarCategorias() {
+    const q = query(collection(db, "categorias"), where("userId", "==", currentUser.uid));
+    const snap = await getDocs(q);
+    categoriasCache = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    
+    // Llenar el select del producto
+    const select = document.getElementById('prod-categoria');
+    select.innerHTML = '<option value="">-- Seleccionar --</option>';
+    categoriasCache.forEach(c => {
+        select.innerHTML += `<option value="${c.nombre}">${c.nombre}</option>`;
+    });
+
+    // Llenar la lista del modal de categorías
+    const lista = document.getElementById('lista-categorias');
+    lista.innerHTML = '';
+    categoriasCache.forEach(c => {
+        lista.innerHTML += `
+            <li class="list-group-item d-flex justify-content-between align-items-center">
+                ${c.nombre}
+                <button class="btn btn-sm btn-outline-danger" onclick="eliminarCategoria('${c.id}')">🗑️</button>
+            </li>
+        `;
+    });
+}
+
+window.abrirModalCategoria = () => new bootstrap.Modal(document.getElementById('modal-categoria')).show();
+
+window.guardarCategoria = async function() {
+    const nombre = document.getElementById('nueva-categoria-nombre').value.trim();
+    if (!nombre) return showAlert('Aviso', 'Escribe un nombre de categoría', 'warning');
+    
+    const existe = categoriasCache.some(c => c.nombre.toLowerCase() === nombre.toLowerCase());
+    if (existe) return showAlert('Aviso', 'Esa categoría ya existe.', 'warning');
+
+    await addDoc(collection(db, "categorias"), { userId: currentUser.uid, nombre });
+    document.getElementById('nueva-categoria-nombre').value = '';
+    await cargarCategorias();
+};
+
+window.eliminarCategoria = async function(id) {
+    const confirmado = await showConfirm('¿Seguro que deseas eliminar esta categoría? Los productos que la usen no se borrarán, pero perderán la etiqueta.');
+    if (confirmado) {
+        await deleteDoc(doc(db, "categorias", id));
+        await cargarCategorias();
+    }
+};
+
+// --- PRODUCTOS ---
 async function cargarProductos() {
     const tbody = document.getElementById('tabla-inventario');
-    tbody.innerHTML = '<tr><td colspan="6">Cargando inventario...</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" class="text-center">Cargando inventario...</td></tr>';
     
     const q = query(collection(db, "inventario"), where("userId", "==", currentUser.uid));
     const snapshot = await getDocs(q);
     
-    productosCache = [];
+    productosCache = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    productosCache.sort((a, b) => a.nombre.localeCompare(b.nombre));
+
     tbody.innerHTML = '';
 
-    if(snapshot.empty) {
-        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;">No hay productos registrados.</td></tr>';
+    if(productosCache.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" class="text-center">No hay productos registrados.</td></tr>';
         return;
     }
-
-    snapshot.forEach(doc => {
-        productosCache.push({ id: doc.id, ...doc.data() });
-    });
-
-    productosCache.sort((a, b) => a.nombre.localeCompare(b.nombre));
 
     productosCache.forEach(prod => {
         let stockTotal = 0;
@@ -107,31 +255,27 @@ async function cargarProductos() {
         prod.variantes.forEach(v => {
             stockTotal += v.stock;
             const colorStock = v.stock <= 0 ? 'stock-out' : 'stock-in';
-            variantesHTML += `<span class="badge">${v.medida}: $${v.precio.toFixed(2)} | <span class="${colorStock}">${v.stock} uds</span></span>`;
+            variantesHTML += `<span class="badge-stock">${v.medida}: $${v.precio.toFixed(2)} | <span class="${colorStock}">${v.stock} uds</span></span>`;
         });
 
-        // Si no hay foto o el link está roto, usamos un placeholder
-        const imgSrc = prod.fotoUrl ? prod.fotoUrl : 'https://via.placeholder.com/40?text=Sin+Foto';
+        const imgSrc = prod.fotoUrl ? prod.fotoUrl : 'https://via.placeholder.com/45?text=No';
 
         tbody.innerHTML += `
             <tr>
-                <td><img src="${imgSrc}" class="img-thumb" onerror="this.src='https://via.placeholder.com/40?text=Error'"></td>
-                <td><b>${prod.nombre}</b></td>
-                <td>${prod.categoria}</td>
+                <td><img src="${imgSrc}" class="img-thumb" onerror="this.src='https://via.placeholder.com/45?text=Err'"></td>
+                <td class="fw-bold">${prod.nombre}</td>
+                <td><span class="badge bg-secondary">${prod.categoria}</span></td>
                 <td>${variantesHTML}</td>
                 <td><b>${stockTotal}</b></td>
                 <td>
-                    <button onclick="editarProducto('${prod.id}')" class="btn-draft btn-sm">✏️ Editar</button>
-                    <button onclick="eliminarProducto('${prod.id}')" class="btn-clear btn-sm">🗑️</button>
+                    <button onclick="editarProducto('${prod.id}')" class="btn btn-sm btn-outline-primary">✏️</button>
+                    <button onclick="eliminarProducto('${prod.id}')" class="btn btn-sm btn-outline-danger">🗑️</button>
                 </td>
             </tr>
         `;
     });
 }
 
-// ==========================================
-// MODAL PRODUCTO
-// ==========================================
 window.abrirModalProducto = function() {
     productoEditandoId = null;
     document.getElementById('modal-prod-titulo').textContent = 'Nuevo Producto';
@@ -142,19 +286,31 @@ window.abrirModalProducto = function() {
     document.getElementById('contenedor-variantes').innerHTML = '';
     
     agregarFilaVariante();
-    document.getElementById('modal-producto').style.display = 'block';
+    new bootstrap.Modal(document.getElementById('modal-producto')).show();
 };
 
-window.cerrarModalProducto = () => document.getElementById('modal-producto').style.display = 'none';
+window.actualizarPreviewFoto = function() {
+    const url = document.getElementById('prod-foto-url').value.trim();
+    const container = document.getElementById('preview-foto-container');
+    const img = document.getElementById('preview-foto');
+
+    if (url) {
+        img.src = url;
+        container.style.display = 'block';
+        img.onerror = () => { container.style.display = 'none'; };
+    } else {
+        container.style.display = 'none';
+    }
+};
 
 window.agregarFilaVariante = function(medida = '', precio = '', stock = '') {
     const container = document.getElementById('contenedor-variantes');
     const div = document.createElement('div');
     div.className = 'variante-row';
     div.innerHTML = `
-        <input type="text" placeholder="Medida (Ej. S, M, Grande)" value="${medida}" class="var-medida">
-        <input type="number" placeholder="Precio $" step="0.01" value="${precio}" class="var-precio">
-        <input type="number" placeholder="Stock inicial" value="${stock}" class="var-stock">
+        <input type="text" class="form-control form-control-sm var-medida" placeholder="Medida" value="${medida}">
+        <input type="number" class="form-control form-control-sm var-precio" placeholder="Precio $" step="0.01" value="${precio}">
+        <input type="number" class="form-control form-control-sm var-stock" placeholder="Stock" value="${stock}">
         <button class="btn-remove-row" onclick="this.parentElement.remove()">X</button>
     `;
     container.appendChild(div);
@@ -162,10 +318,10 @@ window.agregarFilaVariante = function(medida = '', precio = '', stock = '') {
 
 window.guardarProducto = async function() {
     const nombre = document.getElementById('prod-nombre').value.trim();
-    const categoria = document.getElementById('prod-categoria').value.trim();
+    const categoria = document.getElementById('prod-categoria').value;
     const fotoUrl = document.getElementById('prod-foto-url').value.trim();
     
-    if (!nombre || !categoria) return alert("Nombre y Categoría son obligatorios.");
+    if (!nombre || !categoria) return showAlert('Aviso', 'Nombre y Categoría son obligatorios.', 'warning');
 
     const filas = document.querySelectorAll('.variante-row');
     const variantes = [];
@@ -180,30 +336,26 @@ window.guardarProducto = async function() {
         }
     });
 
-    if (variantes.length === 0) return alert("Debes agregar al menos una variante con medida y precio válido.");
+    if (variantes.length === 0) return showAlert('Aviso', 'Agrega al menos una variante válida.', 'warning');
 
     const payload = {
-        userId: currentUser.uid,
-        nombre,
-        categoria,
-        fotoUrl, // Guardamos el enlace de texto, no la imagen
-        variantes,
+        userId: currentUser.uid, nombre, categoria, fotoUrl, variantes,
         fechaActualizacion: new Date().toISOString()
     };
 
     try {
         if (productoEditandoId) {
             await updateDoc(doc(db, "inventario", productoEditandoId), payload);
-            alert("Producto actualizado correctamente.");
+            showAlert('Éxito', 'Producto actualizado.', 'success');
         } else {
             payload.fechaCreacion = new Date().toISOString();
             await addDoc(collection(db, "inventario"), payload);
-            alert("Producto creado correctamente.");
+            showAlert('Éxito', 'Producto creado.', 'success');
         }
-        cerrarModalProducto();
+        bootstrap.Modal.getInstance(document.getElementById('modal-producto')).hide();
         await cargarProductos();
     } catch (e) {
-        alert("Error al guardar: " + e.message);
+        showAlert('Error', e.message, 'danger');
     }
 };
 
@@ -222,19 +374,19 @@ window.editarProducto = function(id) {
     document.getElementById('contenedor-variantes').innerHTML = '';
     prod.variantes.forEach(v => agregarFilaVariante(v.medida, v.precio, v.stock));
 
-    document.getElementById('modal-producto').style.display = 'block';
+    new bootstrap.Modal(document.getElementById('modal-producto')).show();
 };
 
 window.eliminarProducto = async function(id) {
-    if(confirm("¿Estás seguro de eliminar este producto del inventario?")) {
+    const confirmado = await showConfirm('¿Estás seguro de eliminar este producto del inventario?');
+    if (confirmado) {
         await deleteDoc(doc(db, "inventario", id));
         await cargarProductos();
+        showAlert('Eliminado', 'El producto ha sido borrado.', 'success');
     }
 };
 
-// ==========================================
-// MOVIMIENTO DE STOCK
-// ==========================================
+// --- MOVIMIENTO DE STOCK ---
 window.abrirModalMovimiento = function() {
     const select = document.getElementById('mov-producto');
     select.innerHTML = '<option value="">-- Seleccionar --</option>';
@@ -244,10 +396,10 @@ window.abrirModalMovimiento = function() {
     
     document.getElementById('mov-variante').innerHTML = '<option value="">-- Seleccione producto primero --</option>';
     document.getElementById('mov-cantidad').value = '1';
-    document.getElementById('modal-movimiento').style.display = 'block';
+    document.getElementById('mov-codigo-gen').value = '';
+    document.getElementById('mov-num-dte').value = '';
+    new bootstrap.Modal(document.getElementById('modal-movimiento')).show();
 };
-
-window.cerrarModalMovimiento = () => document.getElementById('modal-movimiento').style.display = 'none';
 
 window.cargarVariantesMovimiento = function() {
     const prodId = document.getElementById('mov-producto').value;
@@ -261,7 +413,7 @@ window.cargarVariantesMovimiento = function() {
 
     const prod = productosCache.find(p => p.id === prodId);
     prod.variantes.forEach((v, index) => {
-        selectVar.innerHTML += `<option value="${index}">${v.medida} (Stock actual: ${v.stock})</option>`;
+        selectVar.innerHTML += `<option value="${index}">${v.medida} (Stock: ${v.stock})</option>`;
     });
 };
 
@@ -270,9 +422,11 @@ window.registrarMovimiento = async function() {
     const varIndex = document.getElementById('mov-variante').value;
     const tipo = document.getElementById('mov-tipo').value;
     const cantidad = parseInt(document.getElementById('mov-cantidad').value);
+    const codGen = document.getElementById('mov-codigo-gen').value.trim();
+    const numDte = document.getElementById('mov-num-dte').value.trim();
 
     if (!prodId || varIndex === "" || isNaN(cantidad) || cantidad <= 0) {
-        return alert("Complete todos los campos correctamente.");
+        return showAlert('Aviso', 'Complete todos los campos requeridos.', 'warning');
     }
 
     const prod = productosCache.find(p => p.id === prodId);
@@ -282,20 +436,35 @@ window.registrarMovimiento = async function() {
     if (tipo === 'entrada') {
         nuevoStock += cantidad;
     } else {
-        if (cantidad > stockActual) return alert("No hay suficiente stock para realizar esta salida.");
+        if (cantidad > stockActual) return showAlert('Aviso', 'No hay suficiente stock para esta salida.', 'warning');
         nuevoStock -= cantidad;
     }
 
     prod.variantes[varIndex].stock = nuevoStock;
     
     try {
+        // Actualizar stock del producto
         await updateDoc(doc(db, "inventario", prodId), {
             variantes: prod.variantes
         });
-        alert("Movimiento registrado exitosamente.");
-        cerrarModalMovimiento();
+
+        // Guardar log del movimiento (opcional pero útil)
+        await addDoc(collection(db, "movimientos_inventario"), {
+            userId: currentUser.uid,
+            productoId: prodId,
+            productoNombre: prod.nombre,
+            medida: prod.variantes[varIndex].medida,
+            tipo: tipo,
+            cantidad: cantidad,
+            codigoGeneracion: codGen,
+            numeroDTE: numDte,
+            fecha: new Date().toISOString()
+        });
+
+        showAlert('Éxito', 'Movimiento registrado exitosamente.', 'success');
+        bootstrap.Modal.getInstance(document.getElementById('modal-movimiento')).hide();
         await cargarProductos();
     } catch (e) {
-        alert("Error al registrar movimiento: " + e.message);
+        showAlert('Error', e.message, 'danger');
     }
 };
