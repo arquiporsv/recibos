@@ -3,23 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ERP ARQUIPOR - El Salvador</title>
+    <title>ERP - Inventario</title>
     <link rel="stylesheet" href="styles.css">
-    <!-- Librerías Core -->
-    <script src="https://unpkg.com/smooth-signature/dist/index.umd.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-    <!-- Google APIs (Drive) - SIN onload aquí -->
-    <script src="https://apis.google.com/js/api.js"></script>
-    <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
 
-    <!-- PANTALLA DE LOGIN -->
     <div id="auth-container" class="auth-container">
         <div class="auth-box">
-            <h2>ERP ARQUIPOR</h2>
-            <p>Sistema de Gestión</p>
+            <h2>Acceso al Sistema</h2>
             <input type="email" id="auth-email" placeholder="Correo electrónico">
             <input type="password" id="auth-password" placeholder="Contraseña">
             <button onclick="login()">Ingresar</button>
@@ -28,196 +19,114 @@
         </div>
     </div>
 
-    <datalist id="lista-productos"></datalist>
-    <datalist id="lista-nombres"></datalist>
-
-    <!-- APLICACIÓN PRINCIPAL -->
     <div id="app-container" style="display: none;">
-        
-        <!-- SIDEBAR -->
-        <div class="sidebar no-print">
-            <div class="brand">ARQUIPOR</div>
-            <button class="nav-link active" onclick="switchTab('dashboard', this)">📊 Dashboard</button>
-            <button class="nav-link" onclick="switchTab('recibos', this)">🧾 Recibos</button>
-            <button class="nav-link" onclick="switchTab('dte', this)">📑 Reporte DTE</button>
-            <button class="nav-link" onclick="switchTab('arqueo', this)">💵 Arqueo de Caja</button>
-            <button class="nav-link" onclick="switchTab('liquidaciones', this)">🛒 Liquidación Gastos</button>
-            
+        <div class="sidebar">
+            <div class="brand">Mi ERP</div>
+            <button class="nav-link active">📦 Inventario</button>
             <div class="user-info">
                 <span id="user-email-display"></span>
                 <button onclick="logout()" class="btn-clear btn-sm" style="margin-top:10px;">Salir</button>
             </div>
         </div>
 
-        <!-- CONTENIDO PRINCIPAL -->
         <div class="main-content">
-            
-            <!-- DASHBOARD -->
-            <div id="view-dashboard" class="view-section">
-                <h2>Bienvenido al ERP</h2>
-                <div class="card" style="margin-top:20px; background:#d9e2f3;">
-                    <h3>🔗 Conexión a Google Drive</h3>
-                    <p>Autoriza el acceso para que el sistema pueda crear carpetas y subir tus PDFs y JSONs automáticamente a la cuenta <b>arquiporsv@gmail.com</b>.</p>
-                    <button id="btn-google-auth" onclick="autorizarGoogleDrive()" class="btn-pdf" disabled>Esperando a Google...</button>
-                    <p id="google-status" style="font-weight:bold; color: green; display:none; margin-top:10px;">✅ Conectado a Google Drive correctamente</p>
+            <div class="view-section">
+                <div class="header-actions">
+                    <h2>Gestión de Inventario</h2>
+                    <div>
+                        <button onclick="abrirModalMovimiento()" class="btn-draft">🔄 Movimiento de Stock</button>
+                        <button onclick="abrirModalProducto()" class="btn-pdf">+ Nuevo Producto</button>
+                    </div>
                 </div>
-            </div>
 
-            <!-- RECIBOS -->
-            <div id="view-recibos" class="view-section" style="display: none;">
-                <div class="controls no-print">
-                    <div class="control-group">
-                        <label>Personas Frecuentes:</label>
-                        <select id="personas-frecuentes"><option value="">-- Seleccionar --</option></select>
-                        <button onclick="guardarPersonaFrecuente()" class="btn-draft btn-sm">Guardar Persona</button>
-                    </div>
-                    <div class="control-group">
-                        <button onclick="guardarBorrador()" class="btn-draft">Guardar Borrador</button>
-                        <button onclick="abrirModalBorradores()" class="btn-draft">Ver Borradores</button>
-                        <button onclick="abrirModalRecibosGenerados()" class="btn-pdf">📄 Ver Recibos Emitidos</button>
-                        <button onclick="limpiarFormulario()" class="btn-clear">Limpiar</button>
-                        <button onclick="descargarPDF()" class="btn-pdf" id="btn-generar-pdf">Generar PDF</button>
-                    </div>
-                </div>
-                <div id="receipt-container" class="receipt-container">
-                    <div class="header">
-                        <div class="header-left"><h1>ARQUIPOR <span class="subtitle">EL SALVADOR</span></h1><p class="nrc">NRC: 0614-140224-112-2</p></div>
-                        <div class="header-right"><div class="receipt-number-box"><span class="rn-label">RECIBO No.</span><input type="text" class="rn-value-input" id="receipt-number-value" value="47"></div></div>
-                    </div>
-                    <div class="banner">RECIBO DE GASTOS</div>
-                    <table class="receipt-table">
-                        <tr><td class="label-cell">Fecha:</td><td class="input-cell"><input type="date" id="fecha"></td></tr>
-                        <tr><td class="label-cell">Nombre completo:</td><td class="input-cell"><input type="text" id="nombre" placeholder="Nombre"></td></tr>
-                        <tr><td class="label-cell">No. de DUI:</td><td class="input-cell"><input type="text" id="dui" placeholder="DUI"></td></tr>
-                        <tr><td class="label-cell">Concepto del gasto:</td><td class="input-cell"><textarea id="concepto" rows="3"></textarea></td></tr>
-                        <tr><td class="label-cell">Monto del gasto (US$):</td><td class="input-cell"><input type="number" id="monto" step="0.01"></td></tr>
-                    </table>
-                    <div class="signatures-container">
-                        <div class="signature-block"><canvas id="signature-receiver" width="300" height="100"></canvas><div class="signature-line"></div><p>Firma de quien recibe</p><button class="no-print clear-sig btn-clear btn-sm" onclick="clearSignature('receiver')">Borrar</button></div>
-                        <div class="signature-block"><canvas id="signature-payer" width="300" height="100"></canvas><div class="signature-line"></div><p>Firma de quien paga</p><button class="no-print clear-sig btn-clear btn-sm" onclick="clearSignature('payer')">Borrar</button></div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- REPORTE DTE -->
-            <div id="view-dte" class="view-section" style="display: none;">
-                <h2>📑 Reporte DTE y Subida a Drive</h2>
                 <div class="card">
-                    <h3>Subir Documentos de Hacienda</h3>
-                    <p>Sube el archivo JSON y opcionalmente el PDF. Se guardarán en Drive automáticamente.</p>
-                    <div class="control-group">
-                        <input type="file" id="dte-json" accept=".json">
-                        <input type="file" id="dte-pdf" accept=".pdf">
-                        <button onclick="procesarDTE()" class="btn-pdf">Procesar y Subir</button>
-                    </div>
-                </div>
-                
-                <div class="card">
-                    <h3>Historial de DTEs</h3>
-                    <table class="items-table" id="tabla-dtes">
-                        <thead><tr><th>Fecha</th><th>Tipo</th><th>N° Control</th><th>Cliente</th><th>Total</th></tr></thead>
-                        <tbody id="cuerpo-dtes"></tbody>
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Foto</th>
+                                <th>Producto</th>
+                                <th>Categoría</th>
+                                <th>Variantes (Medida / Precio / Stock)</th>
+                                <th>Stock Total</th>
+                                <th>Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tabla-inventario"></tbody>
                     </table>
                 </div>
             </div>
-
-            <!-- ARQUEO DE CAJA -->
-            <div id="view-arqueo" class="view-section" style="display: none;">
-                <h2>💵 Arqueo de Caja</h2>
-                <div class="controls no-print">
-                    <button onclick="generarArqueoPDF()" class="btn-pdf">Generar PDF y Subir a Drive</button>
-                </div>
-                <div id="arqueo-container" class="receipt-container">
-                    <div class="header"><div class="header-left"><h1>ARQUEO · CORTE DE CAJA</h1></div></div>
-                    <div class="grid-2-col" style="margin-bottom: 20px;">
-                        <div><label>Fecha:</label><input type="date" id="arqueo-fecha"></div>
-                        <div><label>No. Corte:</label><input type="text" id="arqueo-corte" value="001"></div>
-                        <div><label>Responsable:</label><input type="text" id="arqueo-responsable" value="Raquel Alejandra Cuéllar García"></div>
-                    </div>
-                    <div style="display:flex; gap:20px;">
-                        <div style="flex:1;">
-                            <h4>Billetes</h4>
-                            <table class="items-table"><thead><tr><th>Denom.</th><th>Cant.</th><th>Subtotal</th></tr></thead><tbody id="arqueo-billetes"></tbody></table>
-                        </div>
-                        <div style="flex:1;">
-                            <h4>Monedas</h4>
-                            <table class="items-table"><thead><tr><th>Denom.</th><th>Cant.</th><th>Subtotal</th></tr></thead><tbody id="arqueo-monedas"></tbody></table>
-                        </div>
-                    </div>
-                    <div class="totales-box" style="margin-top: 20px; width: 100%;">
-                        <div class="total-row grand-total"><span>TOTAL EFECTIVO:</span> <span id="total-efectivo">$0.00</span></div>
-                        <div class="total-row"><span>Saldo Esperado:</span> <input type="number" id="arqueo-esperado" value="0.00" step="0.01" style="width:100px;"></div>
-                        <div class="total-row"><span>Diferencia:</span> <span id="arqueo-diferencia">$0.00</span></div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- LIQUIDACIONES -->
-            <div id="view-liquidaciones" class="view-section" style="display: none;">
-                <h2>🛒 Liquidación de Gastos de Tienda</h2>
-                
-                <div class="controls no-print" id="panel-nueva-liquidacion">
-                    <div class="control-group">
-                        <label>Total Recibido ($):</label>
-                        <input type="number" id="liq-total-recibido" step="0.01" placeholder="0.00">
-                        <label>Fecha Recibido:</label>
-                        <input type="date" id="liq-fecha-recibido">
-                        <button onclick="crearNuevaLiquidacion()" class="btn-pdf">Crear Liquidación</button>
-                    </div>
-                </div>
-
-                <div id="liquidacion-container" class="receipt-container" style="display:none;">
-                    <div class="header">
-                        <div class="header-left"><h1>GASTOS TIENDA EL SALVADOR</h1><p>Liquidación de Gastos</p></div>
-                    </div>
-                    <div class="grid-2-col" style="margin-bottom: 20px;">
-                        <div><label>Nombre:</label><input type="text" id="liq-nombre" value="RAQUEL ALEJANDRA CUÉLLAR GARCÍA"></div>
-                        <div><label>Fechas:</label><input type="text" id="liq-fechas" readonly></div>
-                    </div>
-
-                    <div class="control-group no-print">
-                        <button onclick="agregarFilaGasto()" class="btn-draft btn-sm">+ Agregar Fila</button>
-                    </div>
-
-                    <table class="items-table" id="tabla-gastos">
-                        <thead><tr><th>N°</th><th>DETALLE</th><th>DOC.</th><th>FECHA</th><th>MONTO</th><th class="no-print">Acción</th></tr></thead>
-                        <tbody id="cuerpo-gastos"></tbody>
-                    </table>
-
-                    <div class="totales-box" style="width: 100%; margin-top: 20px;">
-                        <div class="total-row grand-total"><span>TOTAL GASTOS:</span> <span id="liq-total-gastos">$0.00</span></div>
-                        <div class="total-row"><span>Recibido el:</span> <span id="liq-total-recibido-view">$0.00</span></div>
-                        <div class="total-row grand-total" style="color: black; background: #e0e0e0;"><span>DISPONIBLE:</span> <span id="liq-disponible">$0.00</span></div>
-                    </div>
-                    
-                    <div class="control-group no-print" style="margin-top: 20px;">
-                        <button onclick="guardarLiquidacion()" class="btn-pdf">Guardar Liquidación</button>
-                    </div>
-                </div>
-
-                <div class="card" style="margin-top: 20px;">
-                    <h3>Historial de Liquidaciones</h3>
-                    <table class="items-table" id="tabla-liquidaciones">
-                        <thead><tr><th>Fecha</th><th>Total Recibido</th><th>Total Gastos</th><th>Disponible</th></tr></thead>
-                        <tbody id="cuerpo-liquidaciones"></tbody>
-                    </table>
-                </div>
-            </div>
-
-        </div> <!-- End Main Content -->
-    </div>
-
-    <!-- MODALES -->
-    <div id="modal-borradores" class="modal">
-        <div class="modal-content">
-            <span class="close" onclick="cerrarModalBorradores()">&times;</span>
-            <h2>Borradores</h2><div id="lista-borradores"></div>
         </div>
     </div>
-    <div id="modal-recibos-generados" class="modal">
-        <div class="modal-content" style="width: 70%; max-width: 900px;">
-            <span class="close" onclick="cerrarModalRecibosGenerados()">&times;</span>
-            <h2>📄 Recibos Generados</h2><div id="lista-recibos-generados"></div>
+
+    <!-- MODAL: CREAR/EDITAR PRODUCTO -->
+    <div id="modal-producto" class="modal">
+        <div class="modal-content" style="width: 60%; max-width: 800px;">
+            <span class="close" onclick="cerrarModalProducto()">&times;</span>
+            <h2 id="modal-prod-titulo">Nuevo Producto</h2>
+            
+            <div class="grid-2-col">
+                <div>
+                    <label>Nombre del Producto:</label>
+                    <input type="text" id="prod-nombre" placeholder="Ej. Camisa Polo">
+                </div>
+                <div>
+                    <label>Categoría:</label>
+                    <input type="text" id="prod-categoria" placeholder="Ej. Ropa">
+                </div>
+            </div>
+
+            <div style="margin: 15px 0;">
+                <label>Enlace Directo de la Foto (URL):</label>
+                <input type="url" id="prod-foto-url" placeholder="https://ejemplo.com/foto.jpg" oninput="actualizarPreviewFoto()">
+                <div id="preview-foto-container" style="margin-top: 10px; display: none;">
+                    <img id="preview-foto" src="" style="max-width: 100px; max-height: 100px; border-radius: 4px; object-fit: cover;">
+                </div>
+            </div>
+
+            <hr>
+            <h4>Variantes (Medidas/Tamaños)</h4>
+            <div id="contenedor-variantes"></div>
+            <button onclick="agregarFilaVariante()" class="btn-draft btn-sm" style="margin-bottom: 15px;">+ Añadir Medida</button>
+
+            <div class="modal-footer">
+                <button onclick="guardarProducto()" class="btn-pdf" id="btn-guardar-prod">Guardar Producto</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: MOVIMIENTO DE STOCK -->
+    <div id="modal-movimiento" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="cerrarModalMovimiento()">&times;</span>
+            <h2>Movimiento de Stock</h2>
+            
+            <label>Producto:</label>
+            <select id="mov-producto" onchange="cargarVariantesMovimiento()">
+                <option value="">-- Seleccionar --</option>
+            </select>
+
+            <label>Variante / Medida:</label>
+            <select id="mov-variante">
+                <option value="">-- Seleccione producto primero --</option>
+            </select>
+
+            <div class="grid-2-col" style="margin-top: 15px;">
+                <div>
+                    <label>Tipo de Movimiento:</label>
+                    <select id="mov-tipo">
+                        <option value="entrada">Entrada (Ingreso)</option>
+                        <option value="salida">Salida (Egreso/Venta)</option>
+                    </select>
+                </div>
+                <div>
+                    <label>Cantidad:</label>
+                    <input type="number" id="mov-cantidad" min="1" value="1">
+                </div>
+            </div>
+
+            <div class="modal-footer">
+                <button onclick="registrarMovimiento()" class="btn-pdf">Registrar Movimiento</button>
+            </div>
         </div>
     </div>
 
