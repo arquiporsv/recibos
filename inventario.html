@@ -15,7 +15,6 @@
             <div class="brand">Mi ERP</div>
             <nav class="nav-menu">
                 <button class="nav-link active">📦 Inventario</button>
-                <!-- Futuros módulos aquí -->
             </nav>
             <div class="user-info mt-auto">
                 <span id="user-email-display" class="d-block text-truncate small"></span>
@@ -39,9 +38,9 @@
                     <thead class="table-light">
                         <tr>
                             <th>Foto</th>
-                            <th>Producto / Descripción</th>
+                            <th>Producto</th>
                             <th>Categoría</th>
-                            <th>Variantes</th>
+                            <th>Variantes / Stock</th>
                             <th>Stock Total</th>
                             <th>Acciones</th>
                         </tr>
@@ -87,10 +86,11 @@
                                 <img id="preview-foto" src="" class="img-preview">
                             </div>
                         </div>
+
                         <hr>
-                        <h6>Variantes</h6>
+                        <h6>Variantes (Medidas / Precios)</h6>
                         <div id="contenedor-variantes"></div>
-                        <button onclick="agregarFilaVariante()" class="btn btn-sm btn-outline-primary mt-2">+ Añadir Medida</button>
+                        <button onclick="agregarFilaVariante()" class="btn btn-sm btn-outline-primary mt-2 mb-3">+ Añadir Medida</button>
                     </div>
                     <div class="modal-footer">
                         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
@@ -104,10 +104,7 @@
         <div class="modal fade" id="modal-categoria" tabindex="-1">
             <div class="modal-dialog">
                 <div class="modal-content">
-                    <div class="modal-header">
-                        <h5 class="modal-title">Categorías</h5>
-                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                    </div>
+                    <div class="modal-header"><h5 class="modal-title">Categorías</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
                     <div class="modal-body">
                         <div class="input-group mb-3">
                             <input type="text" id="nueva-categoria-nombre" class="form-control" placeholder="Nueva...">
@@ -123,10 +120,7 @@
         <div class="modal fade" id="modal-movimiento" tabindex="-1">
             <div class="modal-dialog">
                 <div class="modal-content">
-                    <div class="modal-header">
-                        <h5 class="modal-title">Movimiento de Stock</h5>
-                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                    </div>
+                    <div class="modal-header"><h5 class="modal-title">Movimiento de Stock</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
                     <div class="modal-body">
                         <div class="mb-3">
                             <label>Producto:</label>
@@ -138,24 +132,20 @@
                         </div>
                         <div class="row">
                             <div class="col-md-6 mb-3">
-                                <label>Tipo:</label>
+                                <label>Tipo Movimiento:</label>
                                 <select id="mov-tipo" class="form-select">
                                     <option value="entrada">Entrada</option>
                                     <option value="salida">Salida</option>
                                 </select>
                             </div>
                             <div class="col-md-6 mb-3">
-                                <label>Cantidad:</label>
-                                <input type="number" id="mov-cantidad" class="form-control" value="1" min="1">
+                                <label>Cantidad (Permite decimales):</label>
+                                <input type="number" id="mov-cantidad" class="form-control" value="1" step="0.01" min="0.01">
                             </div>
                         </div>
                         <div class="mb-3">
                             <label>Comentario:</label>
                             <input type="text" id="mov-comentario" class="form-control form-control-sm">
-                        </div>
-                        <div class="row">
-                            <div class="col-md-6 mb-2"><input type="text" id="mov-codigo-gen" class="form-control form-control-sm" placeholder="Cód. Generación"></div>
-                            <div class="col-md-6 mb-2"><input type="text" id="mov-num-dte" class="form-control form-control-sm" placeholder="N° DTE"></div>
                         </div>
                     </div>
                     <div class="modal-footer">
