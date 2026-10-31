@@ -7,7 +7,6 @@ let productosCache = [];
 let categoriasCache = [];
 let productoEditandoId = null;
 
-// Validar sesión al cargar
 checkAuth((user) => {
     currentUser = user;
     document.getElementById('user-email-display').textContent = user.email;
@@ -46,7 +45,6 @@ window.guardarCategoria = async function() {
     const nombre = document.getElementById('nueva-categoria-nombre').value.trim();
     if (!nombre) return showAlert('Aviso', 'Escribe un nombre.', 'warning');
     if (categoriasCache.some(c => c.nombre.toLowerCase() === nombre.toLowerCase())) return showAlert('Aviso', 'Ya existe.', 'warning');
-
     await addDoc(collection(db, "categorias"), { userId: currentUser.uid, nombre });
     document.getElementById('nueva-categoria-nombre').value = '';
     await cargarCategorias();
@@ -81,7 +79,9 @@ async function cargarProductos() {
         prod.variantes.forEach(v => {
             stockTotal += v.stock;
             const colorStock = v.stock <= 0 ? 'stock-out' : 'stock-in';
-            variantesHTML += `<span class="badge-stock">${v.medida}: $${v.precio.toFixed(2)} | <span class="${colorStock}">${v.stock} uds</span></span>`;
+            // Usamos parseFloat para mostrar decimales si los hay
+            const stockMostrar = Number.isInteger(v.stock) ? v.stock : v.stock.toFixed(2);
+            variantesHTML += `<span class="badge-stock">${v.medida}: $${v.precio.toFixed(2)} | <span class="${colorStock}">${stockMostrar} uds</span></span>`;
         });
 
         tbody.innerHTML += `
@@ -90,7 +90,7 @@ async function cargarProductos() {
                 <td><div class="fw-bold">${prod.nombre}</div><div class="text-muted small">${prod.descripcion || ''}</div></td>
                 <td><span class="badge bg-secondary">${prod.categoria}</span></td>
                 <td>${variantesHTML}</td>
-                <td><b>${stockTotal}</b></td>
+                <td><b>${Number.isInteger(stockTotal) ? stockTotal : stockTotal.toFixed(2)}</b></td>
                 <td>
                     <button onclick="editarProducto('${prod.id}')" class="btn btn-sm btn-outline-primary">✏️</button>
                     <button onclick="eliminarProducto('${prod.id}')" class="btn btn-sm btn-outline-danger">🗑️</button>
@@ -109,6 +109,7 @@ window.abrirModalProducto = function() {
     document.getElementById('prod-foto-url').value = '';
     document.getElementById('preview-foto-container').style.display = 'none';
     document.getElementById('contenedor-variantes').innerHTML = '';
+    
     agregarFilaVariante();
     new bootstrap.Modal(document.getElementById('modal-producto')).show();
 };
@@ -131,7 +132,7 @@ window.agregarFilaVariante = function(medida = '', precio = '', stock = '') {
     div.innerHTML = `
         <input type="text" class="form-control form-control-sm var-medida" placeholder="Medida" value="${medida}">
         <input type="number" class="form-control form-control-sm var-precio" placeholder="Precio $" step="0.01" value="${precio}">
-        <input type="number" class="form-control form-control-sm var-stock" placeholder="Stock" value="${stock}">
+        <input type="number" class="form-control form-control-sm var-stock" placeholder="Stock" step="0.01" value="${stock}">
         <button class="btn-remove-row" onclick="this.parentElement.remove()">X</button>
     `;
     container.appendChild(div);
@@ -149,13 +150,24 @@ window.guardarProducto = async function() {
     document.querySelectorAll('.variante-row').forEach(fila => {
         const medida = fila.querySelector('.var-medida').value.trim();
         const precio = parseFloat(fila.querySelector('.var-precio').value);
-        const stock = parseInt(fila.querySelector('.var-stock').value) || 0;
-        if (medida && !isNaN(precio)) variantes.push({ medida, precio, stock });
+        // Usamos parseFloat para el stock
+        const stock = parseFloat(fila.querySelector('.var-stock').value) || 0;
+        if (medida && !isNaN(precio)) {
+            variantes.push({ medida, precio, stock });
+        }
     });
 
-    if (variantes.length === 0) return showAlert('Aviso', 'Agrega al menos una variante.', 'warning');
+    if (variantes.length === 0) return showAlert('Aviso', 'Agrega al menos una variante válida.', 'warning');
 
-    const payload = { userId: currentUser.uid, nombre, categoria, descripcion, fotoUrl, variantes, fechaActualizacion: new Date().toISOString() };
+    const payload = { 
+        userId: currentUser.uid, 
+        nombre, 
+        categoria, 
+        descripcion, 
+        fotoUrl, 
+        variantes, 
+        fechaActualizacion: new Date().toISOString() 
+    };
 
     try {
         if (productoEditandoId) {
@@ -174,15 +186,20 @@ window.guardarProducto = async function() {
 window.editarProducto = function(id) {
     const prod = productosCache.find(p => p.id === id);
     if (!prod) return;
+    
     productoEditandoId = id;
+    
     document.getElementById('modal-prod-titulo').textContent = 'Editar Producto';
     document.getElementById('prod-nombre').value = prod.nombre;
     document.getElementById('prod-categoria').value = prod.categoria;
     document.getElementById('prod-descripcion').value = prod.descripcion || '';
     document.getElementById('prod-foto-url').value = prod.fotoUrl || '';
+    
     actualizarPreviewFoto();
+
     document.getElementById('contenedor-variantes').innerHTML = '';
     prod.variantes.forEach(v => agregarFilaVariante(v.medida, v.precio, v.stock));
+
     new bootstrap.Modal(document.getElementById('modal-producto')).show();
 };
 
@@ -199,11 +216,10 @@ window.abrirModalMovimiento = function() {
     const select = document.getElementById('mov-producto');
     select.innerHTML = '<option value="">-- Seleccionar --</option>';
     productosCache.forEach(p => { select.innerHTML += `<option value="${p.id}">${p.nombre}</option>`; });
+    
     document.getElementById('mov-variante').innerHTML = '<option value="">-- Seleccione producto --</option>';
     document.getElementById('mov-cantidad').value = '1';
     document.getElementById('mov-comentario').value = '';
-    document.getElementById('mov-codigo-gen').value = '';
-    document.getElementById('mov-num-dte').value = '';
     new bootstrap.Modal(document.getElementById('modal-movimiento')).show();
 };
 
@@ -211,13 +227,17 @@ window.cargarVariantesMovimiento = function() {
     const prodId = document.getElementById('mov-producto').value;
     const selectVar = document.getElementById('mov-variante');
     selectVar.innerHTML = '';
+
     if (!prodId) {
         selectVar.innerHTML = '<option value="">-- Seleccione producto --</option>';
         return;
     }
+
     const prod = productosCache.find(p => p.id === prodId);
     prod.variantes.forEach((v, index) => {
-        selectVar.innerHTML += `<option value="${index}">${v.medida} (Stock: ${v.stock})</option>`;
+        // Mostrar el stock formateado
+        const stockMostrar = Number.isInteger(v.stock) ? v.stock : v.stock.toFixed(2);
+        selectVar.innerHTML += `<option value="${index}">${v.medida} (Stock: ${stockMostrar})</option>`;
     });
 };
 
@@ -225,37 +245,40 @@ window.registrarMovimiento = async function() {
     const prodId = document.getElementById('mov-producto').value;
     const varIndex = document.getElementById('mov-variante').value;
     const tipo = document.getElementById('mov-tipo').value;
-    const cantidad = parseInt(document.getElementById('mov-cantidad').value);
+    // Usamos parseFloat para aceptar decimales en el movimiento
+    const cantidad = parseFloat(document.getElementById('mov-cantidad').value);
     const comentario = document.getElementById('mov-comentario').value.trim();
-    const codGen = document.getElementById('mov-codigo-gen').value.trim();
-    const numDte = document.getElementById('mov-num-dte').value.trim();
 
     if (!prodId || varIndex === "" || isNaN(cantidad) || cantidad <= 0) {
-        return showAlert('Aviso', 'Complete los campos requeridos.', 'warning');
+        return showAlert('Aviso', 'Complete los campos requeridos y use una cantidad válida.', 'warning');
     }
 
     const prod = productosCache.find(p => p.id === prodId);
     let stockActual = prod.variantes[varIndex].stock;
 
-    if (tipo === 'salida' && cantidad > stockActual) return showAlert('Aviso', 'Stock insuficiente.', 'warning');
+    if (tipo === 'salida' && cantidad > stockActual) return showAlert('Aviso', 'Stock insuficiente para realizar esta salida.', 'warning');
 
     prod.variantes[varIndex].stock += (tipo === 'entrada' ? cantidad : -cantidad);
     
     try {
         await updateDoc(doc(db, "inventario", prodId), { variantes: prod.variantes });
         await addDoc(collection(db, "movimientos_inventario"), {
-            userId: currentUser.uid, productoId: prodId, productoNombre: prod.nombre,
-            medida: prod.variantes[varIndex].medida, tipo, cantidad,
-            comentario, codigoGeneracion: codGen, numeroDTE: numDte, fecha: new Date().toISOString()
+            userId: currentUser.uid, 
+            productoId: prodId, 
+            productoNombre: prod.nombre,
+            medida: prod.variantes[varIndex].medida, 
+            tipo, 
+            cantidad,
+            comentario, 
+            fecha: new Date().toISOString()
         });
-        showAlert('Éxito', 'Movimiento registrado.', 'success');
+        showAlert('Éxito', 'Movimiento registrado exitosamente.', 'success');
         bootstrap.Modal.getInstance(document.getElementById('modal-movimiento')).hide();
         await cargarProductos();
     } catch (e) { showAlert('Error', e.message, 'danger'); }
 };
 
 window.copiarEnlacePublico = function() {
-    // Ahora el enlace apunta a catalogo.html
     const baseUrl = window.location.origin + window.location.pathname.replace('inventario.html', '');
     const publicUrl = `${baseUrl}catalogo.html?uid=${currentUser.uid}`;
     navigator.clipboard.writeText(publicUrl).then(() => {
