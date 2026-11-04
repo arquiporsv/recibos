@@ -11,15 +11,13 @@ let txPagosTemp = [];
 let txDtesTemp = []; 
 let transaccionEditandoId = null; 
 
-// UTILIDAD: Formatear fecha para el input datetime-local (YYYY-MM-DDTHH:mm)
-function formatDateTimeLocal(date) {
+// UTILIDAD: Obtener solo YYYY-MM-DD para el input
+function getFormattedDate(date) {
     const pad = (num) => String(num).padStart(2, '0');
     const yyyy = date.getFullYear();
     const mm = pad(date.getMonth() + 1);
     const dd = pad(date.getDate());
-    const hh = pad(date.getHours());
-    const min = pad(date.getMinutes());
-    return `${yyyy}-${mm}-${dd}T${hh}:${min}`;
+    return `${yyyy}-${mm}-${dd}`;
 }
 
 checkAuth(async (user) => {
@@ -92,7 +90,6 @@ async function cargarTransacciones() {
         });
 
         transaccionesCache = [...nuevasTx, ...Object.values(gruposAntiguos)];
-        // Ordenar estrictamente por la fecha (más reciente primero)
         transaccionesCache.sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
 
         filtrarMovimientos(); 
@@ -138,10 +135,11 @@ window.filtrarMovimientos = function() {
     acordeon.innerHTML = '';
     filtrados.forEach((tx, index) => {
         const fechaObj = new Date(tx.fecha);
-        // Formato visual: DD/MM/YYYY HH:MM
-        const fechaStr = fechaObj.toLocaleDateString() + ' ' + fechaObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        // Formato visual: DD/MM/YYYY (sin hora)
+        const fechaStr = fechaObj.toLocaleDateString(); 
         const collapseId = `collapse-tx-${index}`;
 
+        // Generar tabla de productos
         let filasHTML = '';
         let sumaTotal = 0;
         if (tx.items) {
@@ -154,9 +152,27 @@ window.filtrarMovimientos = function() {
         }
         const totalMostrar = tx.total || sumaTotal;
 
-        let pagosHTML = tx.pagos && tx.pagos.length > 0 
-            ? tx.pagos.map(p => `<span class="badge bg-info text-dark me-1">${p.metodo}: $${p.monto.toFixed(2)}</span>`).join('')
-            : '<span class="text-muted small">No registrados</span>';
+        // Generar lista de DTEs
+        let dtesInfoHTML = '';
+        if (tx.dtes && tx.dtes.length > 0) {
+            dtesInfoHTML = `<ul class="list-group list-group-flush mb-2">`;
+            tx.dtes.forEach(d => {
+                dtesInfoHTML += `<li class="list-group-item py-1 px-0 border-0 small"><b>Código:</b> ${d.codigo || '-'} | <b>Número:</b> ${d.numero || '-'}</li>`;
+            });
+            dtesInfoHTML += `</ul>`;
+        }
+
+        // Generar lista de pagos
+        let pagosHTML = '';
+        if (tx.pagos && tx.pagos.length > 0) {
+            pagosHTML = `<ul class="list-group list-group-flush mb-2">`;
+            tx.pagos.forEach(p => {
+                pagosHTML += `<li class="list-group-item py-1 px-0 border-0 small"><b>${p.metodo}:</b> $${p.monto.toFixed(2)} ${p.fechaAbono ? `(Abonado: ${p.fechaAbono})` : ''}</li>`;
+            });
+            pagosHTML += `</ul>`;
+        } else {
+            pagosHTML = '<span class="text-muted small">No registrados</span>';
+        }
 
         let estadoBadge = '';
         if (tx.estadoEntrega === 'Pendiente de retiro') estadoBadge = '<span class="badge bg-warning text-dark me-1">Pendiente de Retiro</span>';
@@ -178,14 +194,16 @@ window.filtrarMovimientos = function() {
             dtesHeader = '<span class="text-muted small">Sin DTE</span>';
         }
 
+        // BOTONES SOLO CON ICONOS
         const botonesAccion = `
             <div class="mt-2 text-end border-top pt-2">
                 ${btnProduccion}
-                <button onclick="editarTransaccion('${tx.id}')" class="btn btn-sm btn-outline-primary me-2">✏️ Editar / Completar</button>
-                <button onclick="eliminarTransaccion('${tx.id}')" class="btn btn-sm btn-outline-danger">🗑️ Eliminar</button>
+                <button onclick="editarTransaccion('${tx.id}')" class="btn btn-sm btn-outline-primary me-2" title="Editar / Completar">✏️</button>
+                <button onclick="eliminarTransaccion('${tx.id}')" class="btn btn-sm btn-outline-danger" title="Eliminar">🗑️</button>
             </div>
         `;
 
+        // INFORMACIÓN COMPLETA DENTRO DEL ACORDEÓN
         acordeon.innerHTML += `
             <div class="accordion-item">
                 <h2 class="accordion-header" id="heading-${index}">
@@ -203,10 +221,25 @@ window.filtrarMovimientos = function() {
                 </h2>
                 <div id="${collapseId}" class="accordion-collapse collapse">
                     <div class="accordion-body p-0">
-                        <div class="p-2 bg-light border-bottom">
-                            <small><b>Pagos:</b> ${pagosHTML} | <b>Envío:</b> $${(tx.montoEnvio || 0).toFixed(2)}</small>
-                            ${tx.comentario ? `<br><small><b>Comentario:</b> ${tx.comentario}</small>` : ''}
+                        <div class="row m-0 border-bottom bg-light">
+                            <div class="col-md-6 p-3 border-end">
+                                <h6 class="text-primary fw-bold mb-2">Documentos (DTE)</h6>
+                                ${dtesInfoHTML}
+                                
+                                <h6 class="text-primary fw-bold mb-2 mt-3">Pagos</h6>
+                                ${pagosHTML}
+                            </div>
+                            <div class="col-md-6 p-3">
+                                <h6 class="text-primary fw-bold mb-2">Detalles Adicionales</h6>
+                                <ul class="list-group list-group-flush mb-2">
+                                    <li class="list-group-item py-1 px-0 border-0 small"><b>Envío cobrado:</b> $${(tx.montoEnvio || 0).toFixed(2)}</li>
+                                    <li class="list-group-item py-1 px-0 border-0 small"><b>Estado:</b> ${tx.estadoEntrega || 'N/A'}</li>
+                                    ${tx.fechaEntrega ? `<li class="list-group-item py-1 px-0 border-0 small"><b>Fecha Entrega:</b> ${tx.fechaEntrega}</li>` : ''}
+                                    <li class="list-group-item py-1 px-0 border-0 small"><b>Comentario:</b> ${tx.comentario || 'Sin comentarios'}</li>
+                                </ul>
+                            </div>
                         </div>
+                        
                         <table class="table table-sm mb-0">
                             <thead class="table-light"><tr><th>Producto</th><th>Medida</th><th>Cant.</th><th>Precio</th><th>Subtotal</th></tr></thead>
                             <tbody>${filasHTML}</tbody>
@@ -259,8 +292,8 @@ window.abrirModalTransaccion = function() {
     document.getElementById('tx-tipo').value = 'salida';
     document.getElementById('tx-check-produccion').checked = false;
     
-    // Setear la fecha actual al abrir el modal
-    document.getElementById('tx-fecha-creacion').value = formatDateTimeLocal(new Date());
+    // Fecha actual
+    document.getElementById('tx-fecha-creacion').value = getFormattedDate(new Date());
 
     document.getElementById('temp-dte-codigo').value = '';
     document.getElementById('temp-dte-numero').value = '';
@@ -299,9 +332,9 @@ window.editarTransaccion = function(id) {
     document.getElementById('tx-comentario').value = tx.comentario || '';
     document.getElementById('tx-check-produccion').checked = tx.enProduccion || false;
     
-    // Cargar la fecha de la transacción en el input
+    // Cargar la fecha
     const fechaTx = tx.fecha ? new Date(tx.fecha) : new Date();
-    document.getElementById('tx-fecha-creacion').value = formatDateTimeLocal(fechaTx);
+    document.getElementById('tx-fecha-creacion').value = getFormattedDate(fechaTx);
 
     document.getElementById('tx-check-envio').checked = tx.montoEnvio > 0;
     toggleEnvio();
@@ -483,9 +516,9 @@ window.guardarTransaccion = async function() {
         return showAlert('Aviso', `Pagos ($${totalPagado.toFixed(2)}) no coinciden con Total ($${total.toFixed(2)}).`, 'warning');
     }
 
-    // Obtener la fecha editada. Si está vacía, usar la actual.
+    // Obtener la fecha seleccionada y fijarla al mediodía (12:00:00) para evitar desfases de zona horaria
     const fechaInput = document.getElementById('tx-fecha-creacion').value;
-    const fechaFinal = fechaInput ? new Date(fechaInput).toISOString() : new Date().toISOString();
+    const fechaFinal = fechaInput ? `${fechaInput}T12:00:00.000Z` : new Date().toISOString();
 
     const tipo = document.getElementById('tx-tipo').value;
     const loteId = 'TX-' + Date.now();
@@ -529,7 +562,7 @@ window.guardarTransaccion = async function() {
             fechaEntrega: document.getElementById('tx-fecha-entrega').value,
             comentario: document.getElementById('tx-comentario').value.trim(), 
             items: txItemsTemp, loteId, 
-            fecha: fechaFinal // <-- Se guarda la fecha editada
+            fecha: fechaFinal 
         };
 
         const txRef = await addDoc(collection(db, "transacciones"), txData);
@@ -546,14 +579,14 @@ window.guardarTransaccion = async function() {
                 productoId: item.prodId, productoNombre: item.nombre,
                 medida: item.medida, tipo, cantidad: item.cantidad,
                 precioUnitario: item.precio, subtotal: item.cantidad * item.precio,
-                loteId, fecha: fechaFinal // <-- También en el detalle
+                loteId, fecha: fechaFinal 
             });
         }
 
         showAlert('Éxito', transaccionEditandoId ? 'Transacción guardada.' : 'Transacción registrada.', 'success');
         cancelarTransaccion();
         await cargarProductos(); 
-        await cargarTransacciones(); // Al recargar, se reordena automáticamente
+        await cargarTransacciones(); 
     } catch (error) {
         showAlert('Error', error.message, 'danger');
     } finally {
