@@ -8,7 +8,7 @@ let productosCache = [];
 
 let txItemsTemp = [];
 let txPagosTemp = [];
-let transaccionEditandoId = null; // Si es null, es nueva. Si tiene ID, es edición.
+let transaccionEditandoId = null; 
 
 checkAuth(async (user) => {
     currentUser = user;
@@ -21,6 +21,9 @@ window.logout = function() {
     signOut(auth).then(() => window.location.href = 'index.html'); 
 };
 
+// ==========================================
+// CARGA DE DATOS
+// ==========================================
 async function cargarProductos() {
     const q = query(collection(db, "inventario"), where("userId", "==", currentUser.uid));
     const snap = await getDocs(q);
@@ -35,32 +38,57 @@ async function cargarTransacciones() {
     acordeon.innerHTML = '<div class="text-center p-3">Cargando historial...</div>';
 
     try {
+        // 1. Cargar Transacciones Nuevas
         const qTx = query(collection(db, "transacciones"), where("userId", "==", currentUser.uid));
         const snapTx = await getDocs(qTx);
         let nuevasTx = snapTx.docs.map(doc => ({ id: doc.id, isNew: true, ...doc.data() }));
 
+        // 2. Cargar Movimientos Históricos
         const qMov = query(collection(db, "movimientos_inventario"), where("userId", "==", currentUser.uid));
         const snapMov = await getDocs(qMov);
         let movimientosAntiguos = snapMov.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
+        // 3. Agrupar históricos (evitando los que ya son parte de una transacción nueva)
         const gruposAntiguos = {};
         movimientosAntiguos.forEach(mov => {
-            if (mov.transaccionId) return; // Ya pertenece a una nueva
+            if (mov.transaccionId) return; 
 
             const key = mov.loteId || new Date(mov.fecha).toISOString();
             if (!gruposAntiguos[key]) {
                 gruposAntiguos[key] = {
-                    id: key, isNew: false, fecha: mov.fecha, tipo: mov.tipo,
+                    id: key, 
+                    isNew: false, 
+                    fecha: mov.fecha, 
+                    tipo: mov.tipo,
                     motivo: mov.tipo === 'salida' ? 'Venta (Histórico)' : 'Entrada (Histórico)',
-                    codigoGeneracion: mov.codigoGeneracion || '', numeroDTE: mov.numeroDTE || '',
-                    comentario: mov.comentario || '', estadoEntrega: 'Histórico',
-                    montoEnvio: 0, total: 0, pagos: [], items: []
+                    codigoGeneracion: mov.codigoGeneracion || '', 
+                    numeroDTE: mov.numeroDTE || '',
+                    comentario: mov.comentario || '', 
+                    estadoEntrega: 'Histórico',
+                    montoEnvio: 0, total: 0, pagos: [], items: [],
+                    docIds: [] // Guardamos los IDs de los documentos para poder borrarlos si se edita
                 };
             }
+
+            // Buscar el índice de la variante en el producto actual para que se pueda editar
+            const prod = productosCache.find(p => p.id === mov.productoId);
+            let varIndex = -1;
+            if (prod) {
+                varIndex = prod.variantes.findIndex(v => v.medida === mov.medida);
+            }
+
             gruposAntiguos[key].items.push({
-                docId: mov.id, prodId: mov.productoId, varIndex: -1, // No sabemos el index exacto del array, lo buscaremos
-                nombre: mov.productoNombre, medida: mov.medida, cantidad: mov.cantidad, precio: 0, subtotal: 0
+                docId: mov.id, 
+                prodId: mov.productoId, 
+                varIndex: varIndex,
+                nombre: mov.productoNombre, 
+                medida: mov.medida, 
+                cantidad: mov.cantidad, 
+                precio: mov.precioUnitario || 0, 
+                subtotal: mov.subtotal || 0
             });
+            
+            gruposAntiguos[key].docIds.push(mov.id);
         });
 
         transaccionesCache = [...nuevasTx, ...Object.values(gruposAntiguos)];
@@ -72,6 +100,9 @@ async function cargarTransacciones() {
     }
 }
 
+// ==========================================
+// RENDERIZADO Y FILTROS
+// ==========================================
 window.filtrarMovimientos = function() {
     const acordeon = document.getElementById('acordeon-movimientos');
     const buscador = document.getElementById('mov-buscador').value.toLowerCase().trim();
@@ -119,13 +150,13 @@ window.filtrarMovimientos = function() {
             ? tx.pagos.map(p => `<span class="badge bg-info text-dark me-1">${p.metodo}: $${p.monto.toFixed(2)}</span>`).join('')
             : '<span class="text-muted small">No registrados</span>';
 
-        // Botones de acción (solo para transacciones nuevas)
-        const botonesAccion = tx.isNew ? `
+        // AHORA SIEMPRE MOSTRAMOS LOS BOTONES (Para nuevos e históricos)
+        const botonesAccion = `
             <div class="mt-2 text-end border-top pt-2">
-                <button onclick="editarTransaccion('${tx.id}')" class="btn btn-sm btn-outline-primary me-2">✏️ Editar</button>
+                <button onclick="editarTransaccion('${tx.id}')" class="btn btn-sm btn-outline-primary me-2">✏️ Editar / Completar</button>
                 <button onclick="eliminarTransaccion('${tx.id}')" class="btn btn-sm btn-outline-danger">🗑️ Eliminar</button>
             </div>
-        ` : '';
+        `;
 
         acordeon.innerHTML += `
             <div class="accordion-item">
@@ -166,7 +197,7 @@ window.limpiarFiltrosMov = function() {
 };
 
 // ==========================================
-// CREAR / EDITAR TRANSACCIÓN
+// MODAL: CREAR / EDITAR
 // ==========================================
 window.abrirModalTransaccion = function() {
     transaccionEditandoId = null;
@@ -195,20 +226,31 @@ window.abrirModalTransaccion = function() {
     new bootstrap.Modal(document.getElementById('modal-transaccion')).show();
 };
 
-window.editarTransaccion = async function(id) {
+window.editarTransaccion = function(id) {
     const tx = transaccionesCache.find(t => t.id === id);
-    if (!tx || !tx.isNew) return showAlert('Aviso', 'Solo puedes editar transacciones nuevas.', 'warning');
+    if (!tx) return;
 
     transaccionEditandoId = id;
-    txItemsTemp = JSON.parse(JSON.stringify(tx.items)); 
-    txPagosTemp = JSON.parse(JSON.stringify(tx.pagos));
+    // Copia profunda para no mutar la caché original mientras se edita
+    txItemsTemp = JSON.parse(JSON.stringify(tx.items || []));
+    txPagosTemp = JSON.parse(JSON.stringify(tx.pagos || []));
+
+    // Si es histórico y algún producto no tiene varIndex (porque se guardó diferente antes), lo buscamos
+    txItemsTemp.forEach(item => {
+        if (item.varIndex === undefined || item.varIndex === -1) {
+            const prod = productosCache.find(p => p.id === item.prodId);
+            if (prod) {
+                item.varIndex = prod.variantes.findIndex(v => v.medida === item.medida);
+            }
+        }
+    });
     
-    document.getElementById('modal-tx-titulo').textContent = 'Editar Transacción';
-    document.getElementById('btn-guardar-tx').textContent = 'Actualizar Transacción';
+    document.getElementById('modal-tx-titulo').textContent = tx.isNew ? 'Editar Transacción' : 'Completar Datos Históricos';
+    document.getElementById('btn-guardar-tx').textContent = tx.isNew ? 'Actualizar Transacción' : 'Guardar y Convertir';
 
     document.getElementById('tx-tipo').value = tx.tipo;
     actualizarMotivos();
-    document.getElementById('tx-motivo').value = tx.motivo;
+    document.getElementById('tx-motivo').value = tx.motivo.includes('Histórico') ? (tx.tipo === 'salida' ? 'Venta' : 'Pedido especial') : tx.motivo;
     document.getElementById('tx-codigo-gen').value = tx.codigoGeneracion || '';
     document.getElementById('tx-num-dte').value = tx.numeroDTE || '';
     document.getElementById('tx-comentario').value = tx.comentario || '';
@@ -217,7 +259,7 @@ window.editarTransaccion = async function(id) {
     toggleEnvio();
     document.getElementById('tx-monto-envio').value = tx.montoEnvio || 0;
     
-    document.getElementById('tx-estado-entrega').value = tx.estadoEntrega || 'Pendiente de retiro';
+    document.getElementById('tx-estado-entrega').value = (tx.estadoEntrega === 'Histórico') ? 'Entregado en tienda' : tx.estadoEntrega;
     toggleFechaPiloto();
     document.getElementById('tx-fecha-entrega').value = tx.fechaEntrega || '';
 
@@ -342,7 +384,7 @@ window.toggleFechaPiloto = function() {
 };
 
 // ==========================================
-// GUARDAR (CREAR O ACTUALIZAR) TRANSACCIÓN
+// GUARDAR TRANSACCIÓN (NUEVA O EDITADA)
 // ==========================================
 window.guardarTransaccion = async function() {
     if (txItemsTemp.length === 0) return showAlert('Aviso', 'No has agregado productos.', 'warning');
@@ -357,39 +399,42 @@ window.guardarTransaccion = async function() {
     }
 
     const tipo = document.getElementById('tx-tipo').value;
-    const loteId = transaccionEditandoId ? 'TX-EDIT-' + Date.now() : 'TX-' + Date.now();
+    const loteId = 'TX-' + Date.now();
     
     const btnGuardar = document.getElementById('btn-guardar-tx');
     btnGuardar.disabled = true;
     btnGuardar.textContent = 'Procesando...';
 
     try {
-        // SI ESTAMOS EDITANDO, PRIMERO REVERTIMOS EL STOCK DE LA TRANSACCIÓN ANTERIOR
         if (transaccionEditandoId) {
-            const txAnterior = transaccionesCache.find(t => t.id === transaccionEditandoId);
+            const oldTx = transaccionesCache.find(t => t.id === transaccionEditandoId);
             
-            // Revertir stock
-            for (const item of txAnterior.items) {
+            // 1. Revertir stock anterior
+            for (const item of oldTx.items) {
                 const prod = productosCache.find(p => p.id === item.prodId);
                 if (prod && prod.variantes[item.varIndex]) {
-                    // Si era salida, sumamos de vuelta. Si era entrada, restamos.
-                    prod.variantes[item.varIndex].stock += (txAnterior.tipo === 'entrada' ? -item.cantidad : item.cantidad);
+                    prod.variantes[item.varIndex].stock += (oldTx.tipo === 'entrada' ? -item.cantidad : item.cantidad);
                     await updateDoc(doc(db, "inventario", item.prodId), { variantes: prod.variantes });
                 }
             }
 
-            // Eliminar los movimientos antiguos de la colección de historial
-            const qMovs = query(collection(db, "movimientos_inventario"), where("transaccionId", "==", transaccionEditandoId));
-            const snapMovs = await getDocs(qMovs);
+            // 2. Borrar el registro anterior de Firestore
             const batch = writeBatch(db);
-            snapMovs.forEach(m => batch.delete(m.ref));
+            if (oldTx.isNew) {
+                batch.delete(doc(db, "transacciones", transaccionEditandoId));
+                const qMovs = query(collection(db, "movimientos_inventario"), where("transaccionId", "==", transaccionEditandoId));
+                const snapMovs = await getDocs(qMovs);
+                snapMovs.forEach(m => batch.delete(m.ref));
+            } else {
+                // Si es histórico, borramos sus documentos individuales
+                oldTx.docIds.forEach(docId => {
+                    batch.delete(doc(db, "movimientos_inventario", docId));
+                });
+            }
             await batch.commit();
-            
-            // Eliminar la transacción anterior
-            await deleteDoc(doc(db, "transacciones", transaccionEditandoId));
         }
 
-        // CREAR LA NUEVA TRANSACCIÓN (O LA EDITADA)
+        // 3. Crear la nueva transacción (o la editada)
         const txData = {
             userId: currentUser.uid, tipo, motivo: document.getElementById('tx-motivo').value,
             codigoGeneracion: document.getElementById('tx-codigo-gen').value.trim(), 
@@ -403,7 +448,7 @@ window.guardarTransaccion = async function() {
 
         const txRef = await addDoc(collection(db, "transacciones"), txData);
 
-        // Aplicar NUEVO stock y guardar movimientos detallados
+        // 4. Aplicar el NUEVO stock y guardar movimientos detallados
         for (const item of txItemsTemp) {
             const prod = productosCache.find(p => p.id === item.prodId);
             if (prod && prod.variantes[item.varIndex]) {
@@ -420,7 +465,7 @@ window.guardarTransaccion = async function() {
             });
         }
 
-        showAlert('Éxito', transaccionEditandoId ? 'Transacción actualizada.' : 'Transacción registrada.', 'success');
+        showAlert('Éxito', transaccionEditandoId ? 'Transacción guardada.' : 'Transacción registrada.', 'success');
         cancelarTransaccion();
         await cargarProductos(); 
         await cargarTransacciones(); 
@@ -451,15 +496,19 @@ window.eliminarTransaccion = async function(id) {
             }
         }
 
-        // 2. Eliminar movimientos de historial
-        const qMovs = query(collection(db, "movimientos_inventario"), where("transaccionId", "==", id));
-        const snapMovs = await getDocs(qMovs);
+        // 2. Eliminar registros
         const batch = writeBatch(db);
-        snapMovs.forEach(m => batch.delete(m.ref));
+        if (tx.isNew) {
+            batch.delete(doc(db, "transacciones", id));
+            const qMovs = query(collection(db, "movimientos_inventario"), where("transaccionId", "==", id));
+            const snapMovs = await getDocs(qMovs);
+            snapMovs.forEach(m => batch.delete(m.ref));
+        } else {
+            tx.docIds.forEach(docId => {
+                batch.delete(doc(db, "movimientos_inventario", docId));
+            });
+        }
         await batch.commit();
-
-        // 3. Eliminar cabecera de transacción
-        await deleteDoc(doc(db, "transacciones", id));
 
         showAlert('Eliminado', 'Transacción eliminada y stock restaurado.', 'success');
         await cargarProductos();
