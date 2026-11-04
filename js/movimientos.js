@@ -92,6 +92,7 @@ async function cargarTransacciones() {
         });
 
         transaccionesCache = [...nuevasTx, ...Object.values(gruposAntiguos)];
+        // Ordenar estrictamente por la fecha (más reciente primero)
         transaccionesCache.sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
 
         filtrarMovimientos(); 
@@ -137,6 +138,7 @@ window.filtrarMovimientos = function() {
     acordeon.innerHTML = '';
     filtrados.forEach((tx, index) => {
         const fechaObj = new Date(tx.fecha);
+        // Formato visual: DD/MM/YYYY HH:MM
         const fechaStr = fechaObj.toLocaleDateString() + ' ' + fechaObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         const collapseId = `collapse-tx-${index}`;
 
@@ -225,9 +227,6 @@ window.limpiarFiltrosMov = function() {
     filtrarMovimientos();
 };
 
-// ==========================================
-// TOGGLE RÁPIDO DE PRODUCCIÓN
-// ==========================================
 window.toggleProduccionRapido = async function(id, estadoActual) {
     try {
         await updateDoc(doc(db, "transacciones", id), { enProduccion: !estadoActual });
@@ -300,7 +299,7 @@ window.editarTransaccion = function(id) {
     document.getElementById('tx-comentario').value = tx.comentario || '';
     document.getElementById('tx-check-produccion').checked = tx.enProduccion || false;
     
-    // Cargar la fecha de la transacción (o la actual si no tiene)
+    // Cargar la fecha de la transacción en el input
     const fechaTx = tx.fecha ? new Date(tx.fecha) : new Date();
     document.getElementById('tx-fecha-creacion').value = formatDateTimeLocal(fechaTx);
 
@@ -530,7 +529,7 @@ window.guardarTransaccion = async function() {
             fechaEntrega: document.getElementById('tx-fecha-entrega').value,
             comentario: document.getElementById('tx-comentario').value.trim(), 
             items: txItemsTemp, loteId, 
-            fecha: fechaFinal // <-- Usamos la fecha editada
+            fecha: fechaFinal // <-- Se guarda la fecha editada
         };
 
         const txRef = await addDoc(collection(db, "transacciones"), txData);
@@ -547,14 +546,14 @@ window.guardarTransaccion = async function() {
                 productoId: item.prodId, productoNombre: item.nombre,
                 medida: item.medida, tipo, cantidad: item.cantidad,
                 precioUnitario: item.precio, subtotal: item.cantidad * item.precio,
-                loteId, fecha: fechaFinal // <-- También guardamos la fecha editada en el detalle
+                loteId, fecha: fechaFinal // <-- También en el detalle
             });
         }
 
         showAlert('Éxito', transaccionEditandoId ? 'Transacción guardada.' : 'Transacción registrada.', 'success');
         cancelarTransaccion();
         await cargarProductos(); 
-        await cargarTransacciones(); 
+        await cargarTransacciones(); // Al recargar, se reordena automáticamente
     } catch (error) {
         showAlert('Error', error.message, 'danger');
     } finally {
