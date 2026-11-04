@@ -4,17 +4,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Inventario - ERP</title>
-    <!-- Bootstrap CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <!-- Estilos Personalizados -->
     <link rel="stylesheet" href="css/styles.css">
     <link rel="stylesheet" href="css/inventario.css">
 </head>
 <body>
     <div id="app-container">
-        <!-- ==========================================
-             SIDEBAR
-             ========================================== -->
+        <!-- SIDEBAR -->
         <aside class="sidebar">
             <div class="brand">Mi ERP</div>
             <nav class="nav-menu">
@@ -27,9 +23,7 @@
             </div>
         </aside>
 
-        <!-- ==========================================
-             CONTENIDO PRINCIPAL
-             ========================================== -->
+        <!-- CONTENIDO PRINCIPAL -->
         <main class="main-content">
             <header class="view-header">
                 <h2>Gestión de Inventario</h2>
@@ -69,58 +63,50 @@
                             <th>Acciones</th>
                         </tr>
                     </thead>
-                    <tbody id="tabla-inventario">
-                        <!-- Se llena dinámicamente con JS -->
-                    </tbody>
+                    <tbody id="tabla-inventario"></tbody>
                 </table>
             </div>
         </main>
     </div>
 
-    <!-- ==========================================
-         MODALES
-         ========================================== -->
+    <!-- MODALES -->
     <div id="modals-container">
-        
         <!-- Modal Producto -->
         <div class="modal fade" id="modal-producto" tabindex="-1" aria-hidden="true">
             <div class="modal-dialog modal-lg">
                 <div class="modal-content">
                     <div class="modal-header">
                         <h5 class="modal-title" id="modal-prod-titulo">Nuevo Producto</h5>
-                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                     </div>
                     <div class="modal-body">
                         <div class="row">
                             <div class="col-md-6 mb-3">
-                                <label>Nombre del Producto:</label>
+                                <label>Nombre:</label>
                                 <input type="text" id="prod-nombre" class="form-control" placeholder="Ej. Camisa Polo">
                             </div>
                             <div class="col-md-6 mb-3">
                                 <label>Categoría:</label>
                                 <div class="input-group">
                                     <select id="prod-categoria" class="form-select"></select>
-                                    <button class="btn btn-outline-secondary" onclick="abrirModalCategoria()" title="Gestionar Categorías">⚙️</button>
+                                    <button class="btn btn-outline-secondary" onclick="abrirModalCategoria()">⚙️</button>
                                 </div>
                             </div>
                         </div>
                         <div class="mb-3">
                             <label>Descripción:</label>
-                            <textarea id="prod-descripcion" class="form-control" rows="2" placeholder="Detalles del producto..."></textarea>
+                            <textarea id="prod-descripcion" class="form-control" rows="2" placeholder="Detalles..."></textarea>
                         </div>
                         <div class="mb-3">
                             <label>Enlace Foto (URL):</label>
-                            <input type="url" id="prod-foto-url" class="form-control" oninput="actualizarPreviewFoto()" placeholder="https://ejemplo.com/foto.jpg">
+                            <input type="url" id="prod-foto-url" class="form-control" oninput="actualizarPreviewFoto()">
                             <div id="preview-foto-container" class="mt-2" style="display: none;">
-                                <img id="preview-foto" src="" class="img-preview" alt="Vista previa">
+                                <img id="preview-foto" src="" class="img-preview">
                             </div>
                         </div>
-
                         <hr>
                         <h6>Variantes (Medidas / Precios / Stock)</h6>
-                        <div id="contenedor-variantes">
-                            <!-- Filas dinámicas -->
-                        </div>
+                        <div id="contenedor-variantes"></div>
                         <button onclick="agregarFilaVariante()" class="btn btn-sm btn-outline-primary mt-2 mb-3">+ Añadir Medida</button>
                     </div>
                     <div class="modal-footer">
@@ -137,79 +123,95 @@
                 <div class="modal-content">
                     <div class="modal-header">
                         <h5 class="modal-title">Gestionar Categorías</h5>
-                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                     </div>
                     <div class="modal-body">
                         <div class="input-group mb-3">
-                            <input type="text" id="nueva-categoria-nombre" class="form-control" placeholder="Nueva categoría...">
+                            <input type="text" id="nueva-categoria-nombre" class="form-control" placeholder="Nueva...">
                             <button class="btn btn-primary" onclick="guardarCategoria()">Agregar</button>
                         </div>
-                        <ul class="list-group" id="lista-categorias">
-                            <!-- Lista dinámica de categorías -->
-                        </ul>
+                        <ul class="list-group" id="lista-categorias"></ul>
                     </div>
                 </div>
             </div>
         </div>
 
-        <!-- Modal Movimiento de Stock -->
+        <!-- Modal Movimiento de Stock (Lote) -->
         <div class="modal fade" id="modal-movimiento" tabindex="-1" aria-hidden="true">
-            <div class="modal-dialog">
+            <div class="modal-dialog modal-xl">
                 <div class="modal-content">
                     <div class="modal-header">
-                        <h5 class="modal-title">Movimiento de Stock</h5>
-                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                        <h5 class="modal-title">Registrar Movimiento (Lote)</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                     </div>
                     <div class="modal-body">
-                        <div class="mb-3">
-                            <label>Producto:</label>
-                            <select id="mov-producto" class="form-select" onchange="cargarVariantesMovimiento()">
-                                <option value="">-- Seleccionar --</option>
-                            </select>
+                        <div class="row bg-light p-2 rounded mb-3">
+                            <div class="col-md-6">
+                                <label class="small">Código de Generación (Opcional):</label>
+                                <input type="text" id="mov-codigo-gen" class="form-control form-control-sm" placeholder="Ej. ABC-123">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="small">N° de DTE (Opcional):</label>
+                                <input type="text" id="mov-num-dte" class="form-control form-control-sm" placeholder="Ej. DTE-01...">
+                            </div>
                         </div>
-                        <div class="mb-3">
-                            <label>Variante / Medida:</label>
-                            <select id="mov-variante" class="form-select">
-                                <option value="">-- Seleccione producto primero --</option>
-                            </select>
-                        </div>
-                        <div class="row">
-                            <div class="col-md-6 mb-3">
-                                <label>Tipo de Movimiento:</label>
-                                <select id="mov-tipo" class="form-select">
-                                    <option value="entrada">Entrada (Ingreso)</option>
-                                    <option value="salida">Salida (Egreso/Venta)</option>
+                        <hr>
+                        <h6 class="text-primary">Agregar Producto al Movimiento</h6>
+                        <div class="row align-items-end mb-3">
+                            <div class="col-md-4">
+                                <label class="small">Producto:</label>
+                                <select id="mov-producto" class="form-select form-select-sm" onchange="cargarVariantesMovimiento()">
+                                    <option value="">-- Seleccionar --</option>
                                 </select>
                             </div>
-                            <div class="col-md-6 mb-3">
-                                <label>Cantidad (Acepta decimales):</label>
-                                <input type="number" id="mov-cantidad" class="form-control" value="1" step="0.01" min="0.01">
+                            <div class="col-md-3">
+                                <label class="small">Variante:</label>
+                                <select id="mov-variante" class="form-select form-select-sm">
+                                    <option value="">-- Seleccione producto --</option>
+                                </select>
+                            </div>
+                            <div class="col-md-2">
+                                <label class="small">Tipo:</label>
+                                <select id="mov-tipo" class="form-select form-select-sm">
+                                    <option value="salida">Salida</option>
+                                    <option value="entrada">Entrada</option>
+                                </select>
+                            </div>
+                            <div class="col-md-1">
+                                <label class="small">Cant:</label>
+                                <input type="number" id="mov-cantidad" class="form-control form-control-sm" value="1" step="0.01" min="0.01">
+                            </div>
+                            <div class="col-md-2">
+                                <button onclick="agregarItemAlLote()" class="btn btn-sm btn-outline-primary w-100">+ Agregar</button>
                             </div>
                         </div>
-                        <div class="mb-3">
-                            <label>Comentario (Opcional):</label>
-                            <input type="text" id="mov-comentario" class="form-control form-control-sm" placeholder="Motivo del movimiento...">
-                        </div>
+                        <table class="table table-sm table-bordered" id="tabla-lote-movimiento">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Producto</th>
+                                    <th>Medida</th>
+                                    <th>Tipo</th>
+                                    <th>Cantidad</th>
+                                    <th>Acción</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
                     </div>
                     <div class="modal-footer">
                         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-                        <button onclick="registrarMovimiento()" class="btn btn-primary">Registrar Movimiento</button>
+                        <button onclick="registrarLoteMovimiento()" class="btn btn-primary">Procesar y Guardar Lote</button>
                     </div>
                 </div>
             </div>
         </div>
 
-        <!-- Modal de Confirmación (Requerido por firebase.js) -->
+        <!-- Modal Confirmación -->
         <div class="modal fade" id="modal-confirmacion" tabindex="-1" aria-hidden="true">
             <div class="modal-dialog modal-dialog-centered">
                 <div class="modal-content">
-                    <div class="modal-header">
-                        <h5 class="modal-title">Confirmación</h5>
-                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                    </div>
-                    <div class="modal-body" id="confirmacion-mensaje">
-                        <!-- Mensaje dinámico -->
-                    </div>
+                    <div class="modal-header"><h5 class="modal-title">Confirmación</h5></div>
+                    <div class="modal-body" id="confirmacion-mensaje"></div>
                     <div class="modal-footer">
                         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
                         <button type="button" class="btn btn-danger" id="btn-confirmar-accion">Sí, continuar</button>
@@ -217,10 +219,8 @@
                 </div>
             </div>
         </div>
-
     </div>
 
-    <!-- Scripts -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script type="module" src="js/inventario.js"></script>
 </body>
