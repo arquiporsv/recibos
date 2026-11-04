@@ -86,7 +86,7 @@
                 </div>
                 <div class="modal-body">
                     <!-- CABECERA CON FECHA EDITABLE -->
-                    <div class="row bg-light p-3 rounded mb-3">
+                    <div class="row bg-light p-3 rounded mb-3 border border-warning">
                         <div class="col-md-3">
                             <label class="small fw-bold">Tipo:</label>
                             <select id="tx-tipo" class="form-select form-select-sm" onchange="actualizarMotivos()">
@@ -99,8 +99,8 @@
                             <select id="tx-motivo" class="form-select form-select-sm"></select>
                         </div>
                         <div class="col-md-3">
-                            <label class="small fw-bold">Fecha y Hora:</label>
-                            <input type="datetime-local" id="tx-fecha-creacion" class="form-control form-control-sm">
+                            <label class="small fw-bold text-warning">Fecha y Hora (Editable):</label>
+                            <input type="datetime-local" id="tx-fecha-creacion" class="form-control form-control-sm border-warning">
                         </div>
                         <div class="col-md-3 d-flex align-items-center">
                             <div class="form-check form-switch mt-3">
