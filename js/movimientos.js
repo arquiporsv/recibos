@@ -8,6 +8,7 @@ let productosCache = [];
 
 let txItemsTemp = [];
 let txPagosTemp = [];
+let txDtesTemp = []; 
 let transaccionEditandoId = null; 
 
 checkAuth(async (user) => {
@@ -38,17 +39,23 @@ async function cargarTransacciones() {
     acordeon.innerHTML = '<div class="text-center p-3">Cargando historial...</div>';
 
     try {
-        // 1. Cargar Transacciones Nuevas
         const qTx = query(collection(db, "transacciones"), where("userId", "==", currentUser.uid));
         const snapTx = await getDocs(qTx);
-        let nuevasTx = snapTx.docs.map(doc => ({ id: doc.id, isNew: true, ...doc.data() }));
+        let nuevasTx = snapTx.docs.map(doc => {
+            let data = doc.data();
+            // Adaptar transacciones viejas al nuevo formato de array de DTEs
+            if (!data.dtes && (data.codigoGeneracion || data.numeroDTE)) {
+                data.dtes = [{ codigo: data.codigoGeneracion, numero: data.numeroDTE }];
+            } else if (!data.dtes) {
+                data.dtes = [];
+            }
+            return { id: doc.id, isNew: true, ...data };
+        });
 
-        // 2. Cargar Movimientos Históricos
         const qMov = query(collection(db, "movimientos_inventario"), where("userId", "==", currentUser.uid));
         const snapMov = await getDocs(qMov);
         let movimientosAntiguos = snapMov.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
-        // 3. Agrupar históricos (evitando los que ya son parte de una transacción nueva)
         const gruposAntiguos = {};
         movimientosAntiguos.forEach(mov => {
             if (mov.transaccionId) return; 
@@ -56,38 +63,21 @@ async function cargarTransacciones() {
             const key = mov.loteId || new Date(mov.fecha).toISOString();
             if (!gruposAntiguos[key]) {
                 gruposAntiguos[key] = {
-                    id: key, 
-                    isNew: false, 
-                    fecha: mov.fecha, 
-                    tipo: mov.tipo,
+                    id: key, isNew: false, fecha: mov.fecha, tipo: mov.tipo,
                     motivo: mov.tipo === 'salida' ? 'Venta (Histórico)' : 'Entrada (Histórico)',
-                    codigoGeneracion: mov.codigoGeneracion || '', 
-                    numeroDTE: mov.numeroDTE || '',
-                    comentario: mov.comentario || '', 
-                    estadoEntrega: 'Histórico',
-                    montoEnvio: 0, total: 0, pagos: [], items: [],
-                    docIds: [] // Guardamos los IDs de los documentos para poder borrarlos si se edita
+                    dtes: [{ codigo: mov.codigoGeneracion || '', numero: mov.numeroDTE || '' }],
+                    comentario: mov.comentario || '', estadoEntrega: 'Histórico',
+                    enProduccion: false, montoEnvio: 0, total: 0, pagos: [], items: [], docIds: []
                 };
             }
 
-            // Buscar el índice de la variante en el producto actual para que se pueda editar
             const prod = productosCache.find(p => p.id === mov.productoId);
-            let varIndex = -1;
-            if (prod) {
-                varIndex = prod.variantes.findIndex(v => v.medida === mov.medida);
-            }
+            let varIndex = prod ? prod.variantes.findIndex(v => v.medida === mov.medida) : -1;
 
             gruposAntiguos[key].items.push({
-                docId: mov.id, 
-                prodId: mov.productoId, 
-                varIndex: varIndex,
-                nombre: mov.productoNombre, 
-                medida: mov.medida, 
-                cantidad: mov.cantidad, 
-                precio: mov.precioUnitario || 0, 
-                subtotal: mov.subtotal || 0
+                docId: mov.id, prodId: mov.productoId, varIndex,
+                nombre: mov.productoNombre, medida: mov.medida, cantidad: mov.cantidad, precio: mov.precioUnitario || 0, subtotal: mov.subtotal || 0
             });
-            
             gruposAntiguos[key].docIds.push(mov.id);
         });
 
@@ -107,20 +97,27 @@ window.filtrarMovimientos = function() {
     const acordeon = document.getElementById('acordeon-movimientos');
     const buscador = document.getElementById('mov-buscador').value.toLowerCase().trim();
     const motivoFiltro = document.getElementById('mov-filtro-motivo').value;
+    const estadoFiltro = document.getElementById('mov-filtro-estado').value;
     const fechaFiltro = document.getElementById('mov-filtro-fecha').value;
 
     const filtrados = transaccionesCache.filter(tx => {
+        // Buscar en productos, comentarios o en CUALQUIERA de los DTEs
         const prodsStr = tx.items ? tx.items.map(i => i.nombre.toLowerCase()).join(' ') : '';
+        const dtesStr = tx.dtes ? tx.dtes.map(d => `${d.codigo} ${d.numero}`).join(' ').toLowerCase() : '';
+        
         const coincideTexto = prodsStr.includes(buscador) || 
-                              (tx.comentario && tx.comentario.toLowerCase().includes(buscador)) ||
-                              (tx.codigoGeneracion && tx.codigoGeneracion.toLowerCase().includes(buscador));
+                              dtesStr.includes(buscador) ||
+                              (tx.comentario && tx.comentario.toLowerCase().includes(buscador));
+        
         const coincideMotivo = motivoFiltro === "" || (tx.motivo && tx.motivo.includes(motivoFiltro));
+        const coincideEstado = estadoFiltro === "" || tx.estadoEntrega === estadoFiltro;
+
         let coincideFecha = true;
         if (fechaFiltro) {
             const fechaTx = new Date(tx.fecha).toISOString().split('T')[0];
             coincideFecha = fechaTx >= fechaFiltro;
         }
-        return coincideTexto && coincideMotivo && coincideFecha;
+        return coincideTexto && coincideMotivo && coincideEstado && coincideFecha;
     });
 
     if (filtrados.length === 0) {
@@ -150,9 +147,33 @@ window.filtrarMovimientos = function() {
             ? tx.pagos.map(p => `<span class="badge bg-info text-dark me-1">${p.metodo}: $${p.monto.toFixed(2)}</span>`).join('')
             : '<span class="text-muted small">No registrados</span>';
 
-        // AHORA SIEMPRE MOSTRAMOS LOS BOTONES (Para nuevos e históricos)
+        // Etiquetas de estado
+        let estadoBadge = '';
+        if (tx.estadoEntrega === 'Pendiente de retiro') estadoBadge = '<span class="badge bg-warning text-dark me-1">Pendiente de Retiro</span>';
+        else if (tx.estadoEntrega === 'Pendiente de enviar') estadoBadge = '<span class="badge bg-info text-dark me-1">Pendiente de Enviar</span>';
+        else if (tx.estadoEntrega !== 'Histórico' && tx.estadoEntrega !== '') estadoBadge = `<span class="badge bg-success me-1">${tx.estadoEntrega}</span>`;
+
+        // Etiqueta de producción
+        let produccionBadge = tx.enProduccion ? `<span class="badge bg-danger me-1">EN PRODUCCIÓN</span>` : '';
+
+        // Botón para toggle de producción rápido
+        const btnProduccion = tx.isNew ? `
+            <button onclick="toggleProduccionRapido('${tx.id}', ${!!tx.enProduccion})" class="btn btn-sm ${tx.enProduccion ? 'btn-outline-danger' : 'btn-outline-secondary'} me-2">
+                ${tx.enProduccion ? 'Quitar Producción' : 'Marcar Producción'}
+            </button>
+        ` : '';
+
+        // Lista de DTEs en el header
+        let dtesHeader = '';
+        if (tx.dtes && tx.dtes.length > 0) {
+            dtesHeader = tx.dtes.map(d => `<span class="badge bg-secondary me-1">${d.codigo ? d.codigo.substring(0,8)+'...' : ''} ${d.numero}</span>`).join('');
+        } else {
+            dtesHeader = '<span class="text-muted small">Sin DTE</span>';
+        }
+
         const botonesAccion = `
             <div class="mt-2 text-end border-top pt-2">
+                ${btnProduccion}
                 <button onclick="editarTransaccion('${tx.id}')" class="btn btn-sm btn-outline-primary me-2">✏️ Editar / Completar</button>
                 <button onclick="eliminarTransaccion('${tx.id}')" class="btn btn-sm btn-outline-danger">🗑️ Eliminar</button>
             </div>
@@ -162,12 +183,14 @@ window.filtrarMovimientos = function() {
             <div class="accordion-item">
                 <h2 class="accordion-header" id="heading-${index}">
                     <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#${collapseId}">
-                        <div class="d-flex w-100 justify-content-between pe-3">
-                            <span>
+                        <div class="d-flex w-100 justify-content-between align-items-center pe-3">
+                            <div>
                                 <span class="badge ${tx.tipo === 'entrada' ? 'bg-success' : 'bg-danger'} me-2">${tx.motivo}</span>
-                                ${tx.codigoGeneracion ? `<b>DTE:</b> ${tx.codigoGeneracion}` : 'Sin DTE'} 
-                            </span>
-                            <span class="text-muted small">${fechaStr} | <b>Total: $${totalMostrar.toFixed(2)}</b></span>
+                                ${produccionBadge}
+                                ${estadoBadge}
+                                <div class="mt-1 small text-muted">${dtesHeader}</div>
+                            </div>
+                            <span class="text-muted small text-end">${fechaStr} <br> <b>Total: $${totalMostrar.toFixed(2)}</b></span>
                         </div>
                     </button>
                 </h2>
@@ -192,8 +215,21 @@ window.filtrarMovimientos = function() {
 window.limpiarFiltrosMov = function() {
     document.getElementById('mov-buscador').value = '';
     document.getElementById('mov-filtro-motivo').value = '';
+    document.getElementById('mov-filtro-estado').value = '';
     document.getElementById('mov-filtro-fecha').value = '';
     filtrarMovimientos();
+};
+
+// ==========================================
+// TOGGLE RÁPIDO DE PRODUCCIÓN
+// ==========================================
+window.toggleProduccionRapido = async function(id, estadoActual) {
+    try {
+        await updateDoc(doc(db, "transacciones", id), { enProduccion: !estadoActual });
+        await cargarTransacciones();
+    } catch (error) {
+        showAlert('Error', error.message, 'danger');
+    }
 };
 
 // ==========================================
@@ -203,13 +239,13 @@ window.abrirModalTransaccion = function() {
     transaccionEditandoId = null;
     txItemsTemp = [];
     txPagosTemp = [];
+    txDtesTemp = [];
+    
     document.getElementById('modal-tx-titulo').textContent = 'Registrar Nueva Transacción';
     document.getElementById('btn-guardar-tx').textContent = 'Guardar Transacción';
     
     document.getElementById('tx-prod-search').value = '';
     document.getElementById('tx-variante').innerHTML = '';
-    document.getElementById('tx-codigo-gen').value = '';
-    document.getElementById('tx-num-dte').value = '';
     document.getElementById('tx-comentario').value = '';
     document.getElementById('tx-check-envio').checked = false;
     document.getElementById('div-envio').style.display = 'none';
@@ -217,7 +253,13 @@ window.abrirModalTransaccion = function() {
     document.getElementById('tx-estado-entrega').value = 'Pendiente de retiro';
     document.getElementById('div-fecha-entrega').style.display = 'none';
     document.getElementById('tx-tipo').value = 'salida';
+    document.getElementById('tx-check-produccion').checked = false;
     
+    // Limpiar DTE inputs
+    document.getElementById('temp-dte-codigo').value = '';
+    document.getElementById('temp-dte-numero').value = '';
+    renderizarDtesTemp();
+
     actualizarMotivos();
     renderizarItemsTx();
     renderizarPagosTx();
@@ -231,17 +273,14 @@ window.editarTransaccion = function(id) {
     if (!tx) return;
 
     transaccionEditandoId = id;
-    // Copia profunda para no mutar la caché original mientras se edita
     txItemsTemp = JSON.parse(JSON.stringify(tx.items || []));
     txPagosTemp = JSON.parse(JSON.stringify(tx.pagos || []));
+    txDtesTemp = JSON.parse(JSON.stringify(tx.dtes || []));
 
-    // Si es histórico y algún producto no tiene varIndex (porque se guardó diferente antes), lo buscamos
     txItemsTemp.forEach(item => {
         if (item.varIndex === undefined || item.varIndex === -1) {
             const prod = productosCache.find(p => p.id === item.prodId);
-            if (prod) {
-                item.varIndex = prod.variantes.findIndex(v => v.medida === item.medida);
-            }
+            if (prod) item.varIndex = prod.variantes.findIndex(v => v.medida === item.medida);
         }
     });
     
@@ -251,9 +290,8 @@ window.editarTransaccion = function(id) {
     document.getElementById('tx-tipo').value = tx.tipo;
     actualizarMotivos();
     document.getElementById('tx-motivo').value = tx.motivo.includes('Histórico') ? (tx.tipo === 'salida' ? 'Venta' : 'Pedido especial') : tx.motivo;
-    document.getElementById('tx-codigo-gen').value = tx.codigoGeneracion || '';
-    document.getElementById('tx-num-dte').value = tx.numeroDTE || '';
     document.getElementById('tx-comentario').value = tx.comentario || '';
+    document.getElementById('tx-check-produccion').checked = tx.enProduccion || false;
     
     document.getElementById('tx-check-envio').checked = tx.montoEnvio > 0;
     toggleEnvio();
@@ -263,6 +301,7 @@ window.editarTransaccion = function(id) {
     toggleFechaPiloto();
     document.getElementById('tx-fecha-entrega').value = tx.fechaEntrega || '';
 
+    renderizarDtesTemp();
     renderizarItemsTx();
     renderizarPagosTx();
     calcularTotalesTransaccion();
@@ -274,6 +313,39 @@ window.cancelarTransaccion = function() {
     bootstrap.Modal.getInstance(document.getElementById('modal-transaccion')).hide();
 };
 
+// ==========================================
+// LÓGICA DE DTEs
+// ==========================================
+window.agregarDTEAlLote = function() {
+    const codigo = document.getElementById('temp-dte-codigo').value.trim();
+    const numero = document.getElementById('temp-dte-numero').value.trim();
+    
+    if (!codigo && !numero) return showAlert('Aviso', 'Ingresa al menos un código o número de DTE.', 'warning');
+
+    txDtesTemp.push({ codigo, numero });
+    document.getElementById('temp-dte-codigo').value = '';
+    document.getElementById('temp-dte-numero').value = '';
+    renderizarDtesTemp();
+};
+
+function renderizarDtesTemp() {
+    const lista = document.getElementById('lista-dtes-temp');
+    lista.innerHTML = '';
+    txDtesTemp.forEach((dte, index) => {
+        lista.innerHTML += `
+            <li class="list-group-item d-flex justify-content-between align-items-center py-1">
+                <span><b>Código:</b> ${dte.codigo || '-'} | <b>Número:</b> ${dte.numero || '-'}</span>
+                <button class="btn btn-sm btn-outline-danger border-0" onclick="eliminarDTETemp(${index})">X</button>
+            </li>
+        `;
+    });
+}
+
+window.eliminarDTETemp = function(index) {
+    txDtesTemp.splice(index, 1);
+    renderizarDtesTemp();
+};
+
 window.actualizarMotivos = function() {
     const tipo = document.getElementById('tx-tipo').value;
     const selectMotivo = document.getElementById('tx-motivo');
@@ -282,6 +354,9 @@ window.actualizarMotivos = function() {
         : `<option value="Pedido especial">Pedido especial</option><option value="Exportación">Exportación</option><option value="Devolución">Devolución</option>`;
 };
 
+// ==========================================
+// LÓGICA DE PRODUCTOS Y PAGOS
+// ==========================================
 window.seleccionarProductoPorNombre = function() {
     const nombre = document.getElementById('tx-prod-search').value;
     const prod = productosCache.find(p => p.nombre === nombre);
@@ -409,7 +484,6 @@ window.guardarTransaccion = async function() {
         if (transaccionEditandoId) {
             const oldTx = transaccionesCache.find(t => t.id === transaccionEditandoId);
             
-            // 1. Revertir stock anterior
             for (const item of oldTx.items) {
                 const prod = productosCache.find(p => p.id === item.prodId);
                 if (prod && prod.variantes[item.varIndex]) {
@@ -418,7 +492,6 @@ window.guardarTransaccion = async function() {
                 }
             }
 
-            // 2. Borrar el registro anterior de Firestore
             const batch = writeBatch(db);
             if (oldTx.isNew) {
                 batch.delete(doc(db, "transacciones", transaccionEditandoId));
@@ -426,7 +499,6 @@ window.guardarTransaccion = async function() {
                 const snapMovs = await getDocs(qMovs);
                 snapMovs.forEach(m => batch.delete(m.ref));
             } else {
-                // Si es histórico, borramos sus documentos individuales
                 oldTx.docIds.forEach(docId => {
                     batch.delete(doc(db, "movimientos_inventario", docId));
                 });
@@ -434,11 +506,10 @@ window.guardarTransaccion = async function() {
             await batch.commit();
         }
 
-        // 3. Crear la nueva transacción (o la editada)
         const txData = {
             userId: currentUser.uid, tipo, motivo: document.getElementById('tx-motivo').value,
-            codigoGeneracion: document.getElementById('tx-codigo-gen').value.trim(), 
-            numeroDTE: document.getElementById('tx-num-dte').value.trim(),
+            dtes: txDtesTemp, // Guardamos el array completo
+            enProduccion: document.getElementById('tx-check-produccion').checked,
             subtotal, montoEnvio: envio, total, pagos: txPagosTemp,
             estadoEntrega: document.getElementById('tx-estado-entrega').value, 
             fechaEntrega: document.getElementById('tx-fecha-entrega').value,
@@ -448,7 +519,6 @@ window.guardarTransaccion = async function() {
 
         const txRef = await addDoc(collection(db, "transacciones"), txData);
 
-        // 4. Aplicar el NUEVO stock y guardar movimientos detallados
         for (const item of txItemsTemp) {
             const prod = productosCache.find(p => p.id === item.prodId);
             if (prod && prod.variantes[item.varIndex]) {
@@ -487,7 +557,6 @@ window.eliminarTransaccion = async function(id) {
     try {
         const tx = transaccionesCache.find(t => t.id === id);
         
-        // 1. Revertir stock
         for (const item of tx.items) {
             const prod = productosCache.find(p => p.id === item.prodId);
             if (prod && prod.variantes[item.varIndex]) {
@@ -496,7 +565,6 @@ window.eliminarTransaccion = async function(id) {
             }
         }
 
-        // 2. Eliminar registros
         const batch = writeBatch(db);
         if (tx.isNew) {
             batch.delete(doc(db, "transacciones", id));
