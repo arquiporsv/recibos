@@ -11,6 +11,17 @@ let txPagosTemp = [];
 let txDtesTemp = []; 
 let transaccionEditandoId = null; 
 
+// UTILIDAD: Formatear fecha para el input datetime-local (YYYY-MM-DDTHH:mm)
+function formatDateTimeLocal(date) {
+    const pad = (num) => String(num).padStart(2, '0');
+    const yyyy = date.getFullYear();
+    const mm = pad(date.getMonth() + 1);
+    const dd = pad(date.getDate());
+    const hh = pad(date.getHours());
+    const min = pad(date.getMinutes());
+    return `${yyyy}-${mm}-${dd}T${hh}:${min}`;
+}
+
 checkAuth(async (user) => {
     currentUser = user;
     document.getElementById('user-email-display').textContent = user.email;
@@ -43,7 +54,6 @@ async function cargarTransacciones() {
         const snapTx = await getDocs(qTx);
         let nuevasTx = snapTx.docs.map(doc => {
             let data = doc.data();
-            // Adaptar transacciones viejas al nuevo formato de array de DTEs
             if (!data.dtes && (data.codigoGeneracion || data.numeroDTE)) {
                 data.dtes = [{ codigo: data.codigoGeneracion, numero: data.numeroDTE }];
             } else if (!data.dtes) {
@@ -101,7 +111,6 @@ window.filtrarMovimientos = function() {
     const fechaFiltro = document.getElementById('mov-filtro-fecha').value;
 
     const filtrados = transaccionesCache.filter(tx => {
-        // Buscar en productos, comentarios o en CUALQUIERA de los DTEs
         const prodsStr = tx.items ? tx.items.map(i => i.nombre.toLowerCase()).join(' ') : '';
         const dtesStr = tx.dtes ? tx.dtes.map(d => `${d.codigo} ${d.numero}`).join(' ').toLowerCase() : '';
         
@@ -147,23 +156,19 @@ window.filtrarMovimientos = function() {
             ? tx.pagos.map(p => `<span class="badge bg-info text-dark me-1">${p.metodo}: $${p.monto.toFixed(2)}</span>`).join('')
             : '<span class="text-muted small">No registrados</span>';
 
-        // Etiquetas de estado
         let estadoBadge = '';
         if (tx.estadoEntrega === 'Pendiente de retiro') estadoBadge = '<span class="badge bg-warning text-dark me-1">Pendiente de Retiro</span>';
         else if (tx.estadoEntrega === 'Pendiente de enviar') estadoBadge = '<span class="badge bg-info text-dark me-1">Pendiente de Enviar</span>';
         else if (tx.estadoEntrega !== 'Histórico' && tx.estadoEntrega !== '') estadoBadge = `<span class="badge bg-success me-1">${tx.estadoEntrega}</span>`;
 
-        // Etiqueta de producción
         let produccionBadge = tx.enProduccion ? `<span class="badge bg-danger me-1">EN PRODUCCIÓN</span>` : '';
 
-        // Botón para toggle de producción rápido
         const btnProduccion = tx.isNew ? `
             <button onclick="toggleProduccionRapido('${tx.id}', ${!!tx.enProduccion})" class="btn btn-sm ${tx.enProduccion ? 'btn-outline-danger' : 'btn-outline-secondary'} me-2">
                 ${tx.enProduccion ? 'Quitar Producción' : 'Marcar Producción'}
             </button>
         ` : '';
 
-        // Lista de DTEs en el header
         let dtesHeader = '';
         if (tx.dtes && tx.dtes.length > 0) {
             dtesHeader = tx.dtes.map(d => `<span class="badge bg-secondary me-1">${d.codigo ? d.codigo.substring(0,8)+'...' : ''} ${d.numero}</span>`).join('');
@@ -255,7 +260,9 @@ window.abrirModalTransaccion = function() {
     document.getElementById('tx-tipo').value = 'salida';
     document.getElementById('tx-check-produccion').checked = false;
     
-    // Limpiar DTE inputs
+    // Setear la fecha actual al abrir el modal
+    document.getElementById('tx-fecha-creacion').value = formatDateTimeLocal(new Date());
+
     document.getElementById('temp-dte-codigo').value = '';
     document.getElementById('temp-dte-numero').value = '';
     renderizarDtesTemp();
@@ -293,6 +300,10 @@ window.editarTransaccion = function(id) {
     document.getElementById('tx-comentario').value = tx.comentario || '';
     document.getElementById('tx-check-produccion').checked = tx.enProduccion || false;
     
+    // Cargar la fecha de la transacción (o la actual si no tiene)
+    const fechaTx = tx.fecha ? new Date(tx.fecha) : new Date();
+    document.getElementById('tx-fecha-creacion').value = formatDateTimeLocal(fechaTx);
+
     document.getElementById('tx-check-envio').checked = tx.montoEnvio > 0;
     toggleEnvio();
     document.getElementById('tx-monto-envio').value = tx.montoEnvio || 0;
@@ -473,6 +484,10 @@ window.guardarTransaccion = async function() {
         return showAlert('Aviso', `Pagos ($${totalPagado.toFixed(2)}) no coinciden con Total ($${total.toFixed(2)}).`, 'warning');
     }
 
+    // Obtener la fecha editada. Si está vacía, usar la actual.
+    const fechaInput = document.getElementById('tx-fecha-creacion').value;
+    const fechaFinal = fechaInput ? new Date(fechaInput).toISOString() : new Date().toISOString();
+
     const tipo = document.getElementById('tx-tipo').value;
     const loteId = 'TX-' + Date.now();
     
@@ -508,13 +523,14 @@ window.guardarTransaccion = async function() {
 
         const txData = {
             userId: currentUser.uid, tipo, motivo: document.getElementById('tx-motivo').value,
-            dtes: txDtesTemp, // Guardamos el array completo
+            dtes: txDtesTemp,
             enProduccion: document.getElementById('tx-check-produccion').checked,
             subtotal, montoEnvio: envio, total, pagos: txPagosTemp,
             estadoEntrega: document.getElementById('tx-estado-entrega').value, 
             fechaEntrega: document.getElementById('tx-fecha-entrega').value,
             comentario: document.getElementById('tx-comentario').value.trim(), 
-            items: txItemsTemp, loteId, fecha: new Date().toISOString()
+            items: txItemsTemp, loteId, 
+            fecha: fechaFinal // <-- Usamos la fecha editada
         };
 
         const txRef = await addDoc(collection(db, "transacciones"), txData);
@@ -531,7 +547,7 @@ window.guardarTransaccion = async function() {
                 productoId: item.prodId, productoNombre: item.nombre,
                 medida: item.medida, tipo, cantidad: item.cantidad,
                 precioUnitario: item.precio, subtotal: item.cantidad * item.precio,
-                loteId, fecha: new Date().toISOString()
+                loteId, fecha: fechaFinal // <-- También guardamos la fecha editada en el detalle
             });
         }
 
