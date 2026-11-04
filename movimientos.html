@@ -25,13 +25,17 @@
         <main class="main-content">
             <header class="view-header">
                 <h2>Historial de Movimientos</h2>
+                <div class="action-buttons">
+                    <button onclick="abrirModalNuevoMovimiento()" class="btn btn-primary">+ Nuevo Movimiento</button>
+                </div>
             </header>
 
+            <!-- FILTROS -->
             <div class="card p-3 shadow-sm mb-3">
                 <div class="row align-items-end">
                     <div class="col-md-4 mb-2 mb-md-0">
                         <label class="form-label text-muted small mb-1">Buscar</label>
-                        <input type="text" id="mov-buscador" class="form-control" placeholder="🔍 Producto, DTE o comentario..." oninput="filtrarMovimientos()">
+                        <input type="text" id="mov-buscador" class="form-control" placeholder="🔍 Lote, Producto, DTE o Comentario..." oninput="filtrarMovimientos()">
                     </div>
                     <div class="col-md-3 mb-2 mb-md-0">
                         <label class="form-label text-muted small mb-1">Tipo</label>
@@ -55,6 +59,158 @@
                 <div class="accordion" id="acordeon-movimientos"></div>
             </div>
         </main>
+    </div>
+
+    <!-- MODAL: NUEVO MOVIMIENTO -->
+    <div class="modal fade" id="modal-movimiento" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-xl">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Registrar Nuevo Movimiento</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <!-- 1. DATOS GENERALES -->
+                    <div class="row bg-light p-3 rounded mb-3">
+                        <div class="col-md-3">
+                            <label class="small fw-bold">Tipo de Movimiento:</label>
+                            <select id="m-tipo" class="form-select form-select-sm" onchange="cambiarMotivos()">
+                                <option value="salida">Salida</option>
+                                <option value="entrada">Entrada</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="small fw-bold">Motivo:</label>
+                            <select id="m-motivo" class="form-select form-select-sm"></select>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="small fw-bold">Cód. Generación:</label>
+                            <input type="text" id="m-codgen" class="form-control form-control-sm" placeholder="Opcional">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="small fw-bold">N° DTE:</label>
+                            <input type="text" id="m-dte" class="form-control form-control-sm" placeholder="Opcional">
+                        </div>
+                    </div>
+
+                    <!-- 2. AGREGAR PRODUCTOS -->
+                    <h6 class="text-primary border-bottom pb-1">Productos</h6>
+                    <div class="row align-items-end mb-3">
+                        <div class="col-md-4">
+                            <label class="small">Buscar Producto:</label>
+                            <input type="text" id="m-prod-search" class="form-control form-control-sm" list="lista-productos" placeholder="Escriba para buscar..." oninput="buscarProductoPorNombre()">
+                            <datalist id="lista-productos"></datalist>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="small">Medida:</label>
+                            <select id="m-prod-variante" class="form-select form-select-sm">
+                                <option value="">-- Seleccione producto --</option>
+                            </select>
+                        </div>
+                        <div class="col-md-1">
+                            <label class="small">Cant:</label>
+                            <input type="number" id="m-prod-cant" class="form-control form-control-sm" value="1" step="0.01" min="0.01">
+                        </div>
+                        <div class="col-md-2">
+                            <label class="small">Precio Unit. $:</label>
+                            <input type="number" id="m-prod-precio" class="form-control form-control-sm" step="0.01" placeholder="0.00">
+                        </div>
+                        <div class="col-md-2">
+                            <button onclick="agregarItemAlLote()" class="btn btn-sm btn-outline-primary w-100">+ Agregar</button>
+                        </div>
+                    </div>
+
+                    <table class="table table-sm table-bordered" id="tabla-lote-movimiento">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Producto</th>
+                                <th>Medida</th>
+                                <th>Cant.</th>
+                                <th>Precio U.</th>
+                                <th>Subtotal</th>
+                                <th>Acción</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+
+                    <!-- 3. TOTALES Y ENVÍO -->
+                    <div class="row justify-content-end mb-3">
+                        <div class="col-md-5">
+                            <div class="d-flex justify-content-between mb-1">
+                                <span>Subtotal Productos:</span>
+                                <span id="m-subtotal" class="fw-bold">$0.00</span>
+                            </div>
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="m-check-envio" onchange="toggleEnvio()">
+                                    <label class="form-check-label" for="m-check-envio">¿Cobrar Envío?</label>
+                                </div>
+                                <input type="number" id="m-costo-envio" class="form-control form-control-sm w-50" step="0.01" value="0.00" disabled oninput="calcularTotales()">
+                            </div>
+                            <div class="d-flex justify-content-between border-top pt-2 mt-2">
+                                <span class="fs-5 fw-bold">TOTAL:</span>
+                                <span id="m-total" class="fs-5 fw-bold text-primary">$0.00</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 4. FORMAS DE PAGO -->
+                    <h6 class="text-success border-bottom pb-1 mt-4">Formas de Pago</h6>
+                    <div class="row align-items-end mb-3">
+                        <div class="col-md-3">
+                            <label class="small">Método:</label>
+                            <select id="p-metodo" class="form-select form-select-sm" onchange="toggleFechaAbono()">
+                                <option value="Efectivo">Efectivo</option>
+                                <option value="Cheque">Cheque</option>
+                                <option value="Transferencia">Transferencia</option>
+                                <option value="Crédito 30D">Crédito 30D</option>
+                                <option value="Crédito 15D">Crédito 15D</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="small">Monto $:</label>
+                            <input type="number" id="p-monto" class="form-control form-control-sm" step="0.01" placeholder="0.00">
+                        </div>
+                        <div class="col-md-3" id="div-fecha-abono" style="display: none;">
+                            <label class="small">Fecha de Abono a Cuenta:</label>
+                            <input type="date" id="p-fecha-abono" class="form-control form-control-sm">
+                        </div>
+                        <div class="col-md-3">
+                            <button onclick="agregarPago()" class="btn btn-sm btn-outline-success w-100">+ Agregar Pago</button>
+                        </div>
+                    </div>
+
+                    <table class="table table-sm table-bordered" id="tabla-pagos">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Método</th>
+                                <th>Monto</th>
+                                <th>Fecha Abono</th>
+                                <th>Acción</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                    
+                    <div class="text-end mb-3">
+                        <span class="me-3">Total Pagado: <b id="m-total-pagado">$0.00</b></span>
+                        <span class="text-danger fw-bold" id="m-faltante">Falta por pagar: $0.00</span>
+                    </div>
+
+                    <!-- 5. COMENTARIO -->
+                    <div class="mb-2">
+                        <label class="small fw-bold">Comentario / Notas:</label>
+                        <textarea id="m-comentario" class="form-control form-control-sm" rows="2"></textarea>
+                    </div>
+
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button onclick="guardarMovimientoCompleto()" class="btn btn-primary" id="btn-guardar-mov">Procesar y Guardar Movimiento</button>
+                </div>
+            </div>
+        </div>
     </div>
 
     <div class="modal fade" id="modal-confirmacion" tabindex="-1">
