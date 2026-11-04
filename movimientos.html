@@ -85,19 +85,24 @@
                     <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" onclick="cancelarTransaccion()"></button>
                 </div>
                 <div class="modal-body">
+                    <!-- CABECERA CON FECHA EDITABLE -->
                     <div class="row bg-light p-3 rounded mb-3">
-                        <div class="col-md-4">
+                        <div class="col-md-3">
                             <label class="small fw-bold">Tipo:</label>
                             <select id="tx-tipo" class="form-select form-select-sm" onchange="actualizarMotivos()">
                                 <option value="salida">Salida</option>
                                 <option value="entrada">Entrada</option>
                             </select>
                         </div>
-                        <div class="col-md-4">
+                        <div class="col-md-3">
                             <label class="small fw-bold">Motivo:</label>
                             <select id="tx-motivo" class="form-select form-select-sm"></select>
                         </div>
-                        <div class="col-md-4 d-flex align-items-center">
+                        <div class="col-md-3">
+                            <label class="small fw-bold">Fecha y Hora:</label>
+                            <input type="datetime-local" id="tx-fecha-creacion" class="form-control form-control-sm">
+                        </div>
+                        <div class="col-md-3 d-flex align-items-center">
                             <div class="form-check form-switch mt-3">
                                 <input class="form-check-input" type="checkbox" id="tx-check-produccion">
                                 <label class="form-check-label fw-bold text-danger" for="tx-check-produccion">Etiqueta: EN PRODUCCIÓN</label>
