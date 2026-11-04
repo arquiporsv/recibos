@@ -99,8 +99,9 @@
                             <select id="tx-motivo" class="form-select form-select-sm"></select>
                         </div>
                         <div class="col-md-3">
-                            <label class="small fw-bold text-warning">Fecha y Hora (Editable):</label>
-                            <input type="datetime-local" id="tx-fecha-creacion" class="form-control form-control-sm border-warning">
+                            <!-- CAMBIO AQUÍ: type="date" y label="Fecha (Editable)" -->
+                            <label class="small fw-bold text-warning">Fecha (Editable):</label>
+                            <input type="date" id="tx-fecha-creacion" class="form-control form-control-sm border-warning">
                         </div>
                         <div class="col-md-3 d-flex align-items-center">
                             <div class="form-check form-switch mt-3">
@@ -125,9 +126,7 @@
                             <button onclick="agregarDTEAlLote()" class="btn btn-sm btn-outline-primary w-100">+ DTE</button>
                         </div>
                     </div>
-                    <ul class="list-group mb-3" id="lista-dtes-temp">
-                        <!-- DTEs temporales -->
-                    </ul>
+                    <ul class="list-group mb-3" id="lista-dtes-temp"></ul>
 
                     <h6 class="text-primary border-bottom pb-2 mt-4">Agregar Productos</h6>
                     <div class="row align-items-end mb-3">
