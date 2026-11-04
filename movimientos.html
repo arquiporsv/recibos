@@ -33,11 +33,11 @@
             <!-- FILTROS -->
             <div class="card p-3 shadow-sm mb-3">
                 <div class="row align-items-end">
-                    <div class="col-md-4 mb-2 mb-md-0">
-                        <label class="form-label text-muted small mb-1">Buscar</label>
-                        <input type="text" id="mov-buscador" class="form-control" placeholder="🔍 Producto, DTE o cliente..." oninput="filtrarMovimientos()">
-                    </div>
                     <div class="col-md-3 mb-2 mb-md-0">
+                        <label class="form-label text-muted small mb-1">Buscar</label>
+                        <input type="text" id="mov-buscador" class="form-control" placeholder="🔍 Producto, DTE o comentario..." oninput="filtrarMovimientos()">
+                    </div>
+                    <div class="col-md-2 mb-2 mb-md-0">
                         <label class="form-label text-muted small mb-1">Motivo</label>
                         <select id="mov-filtro-motivo" class="form-select" onchange="filtrarMovimientos()">
                             <option value="">Todos</option>
@@ -50,6 +50,17 @@
                         </select>
                     </div>
                     <div class="col-md-3 mb-2 mb-md-0">
+                        <label class="form-label text-muted small mb-1">Estado de Entrega</label>
+                        <select id="mov-filtro-estado" class="form-select" onchange="filtrarMovimientos()">
+                            <option value="">Todos los estados</option>
+                            <option value="Pendiente de retiro">Pendiente de retiro</option>
+                            <option value="Pendiente de enviar">Pendiente de enviar</option>
+                            <option value="Entregado en tienda">Entregado en tienda</option>
+                            <option value="Entregado por Paquetería/Fletes">Entregado por Paquetería/Fletes</option>
+                            <option value="Entregado por Piloto">Entregado por Piloto</option>
+                        </select>
+                    </div>
+                    <div class="col-md-2 mb-2 mb-md-0">
                         <label class="form-label text-muted small mb-1">Desde Fecha</label>
                         <input type="date" id="mov-filtro-fecha" class="form-control" onchange="filtrarMovimientos()">
                     </div>
@@ -65,7 +76,7 @@
         </main>
     </div>
 
-    <!-- MODAL: NUEVA TRANSACCIÓN (Igual que antes) -->
+    <!-- MODAL: NUEVA TRANSACCIÓN -->
     <div class="modal fade" id="modal-transaccion" tabindex="-1" aria-hidden="true" data-bs-backdrop="static">
         <div class="modal-dialog modal-xl">
             <div class="modal-content">
@@ -75,28 +86,45 @@
                 </div>
                 <div class="modal-body">
                     <div class="row bg-light p-3 rounded mb-3">
-                        <div class="col-md-3">
+                        <div class="col-md-4">
                             <label class="small fw-bold">Tipo:</label>
                             <select id="tx-tipo" class="form-select form-select-sm" onchange="actualizarMotivos()">
                                 <option value="salida">Salida</option>
                                 <option value="entrada">Entrada</option>
                             </select>
                         </div>
-                        <div class="col-md-3">
+                        <div class="col-md-4">
                             <label class="small fw-bold">Motivo:</label>
                             <select id="tx-motivo" class="form-select form-select-sm"></select>
                         </div>
-                        <div class="col-md-3">
-                            <label class="small fw-bold">Código Generación:</label>
-                            <input type="text" id="tx-codigo-gen" class="form-control form-control-sm">
-                        </div>
-                        <div class="col-md-3">
-                            <label class="small fw-bold">N° DTE:</label>
-                            <input type="text" id="tx-num-dte" class="form-control form-control-sm">
+                        <div class="col-md-4 d-flex align-items-center">
+                            <div class="form-check form-switch mt-3">
+                                <input class="form-check-input" type="checkbox" id="tx-check-produccion">
+                                <label class="form-check-label fw-bold text-danger" for="tx-check-produccion">Etiqueta: EN PRODUCCIÓN</label>
+                            </div>
                         </div>
                     </div>
 
-                    <h6 class="text-primary border-bottom pb-2">Agregar Productos</h6>
+                    <!-- SECCIÓN MULTI-DTE -->
+                    <h6 class="text-primary border-bottom pb-2">Documentos Tributarios (DTE)</h6>
+                    <div class="row align-items-end mb-2 bg-light p-2 rounded">
+                        <div class="col-md-5">
+                            <label class="small">Código Generación:</label>
+                            <input type="text" id="temp-dte-codigo" class="form-control form-control-sm" placeholder="Ej. ABC-123">
+                        </div>
+                        <div class="col-md-5">
+                            <label class="small">N° DTE:</label>
+                            <input type="text" id="temp-dte-numero" class="form-control form-control-sm" placeholder="Ej. 0001-0001...">
+                        </div>
+                        <div class="col-md-2">
+                            <button onclick="agregarDTEAlLote()" class="btn btn-sm btn-outline-primary w-100">+ DTE</button>
+                        </div>
+                    </div>
+                    <ul class="list-group mb-3" id="lista-dtes-temp">
+                        <!-- DTEs temporales -->
+                    </ul>
+
+                    <h6 class="text-primary border-bottom pb-2 mt-4">Agregar Productos</h6>
                     <div class="row align-items-end mb-3">
                         <div class="col-md-3">
                             <label class="small">Buscar Producto:</label>
