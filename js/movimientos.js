@@ -1,5 +1,5 @@
 import { db, auth, checkAuth } from './firebase.js';
-import { collection, getDocs, query, where, orderBy } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+import { collection, getDocs, query, where } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
 let currentUser = null;
@@ -16,82 +16,117 @@ window.logout = function() {
 };
 
 async function cargarMovimientos() {
-    const tbody = document.getElementById('tabla-movimientos');
-    tbody.innerHTML = '<tr><td colspan="6" class="text-center">Cargando historial...</td></tr>';
+    const acordeon = document.getElementById('acordeon-movimientos');
+    acordeon.innerHTML = '<div class="text-center p-3">Cargando historial...</div>';
 
     try {
-        // Buscar todos los movimientos del usuario, ordenados por fecha descendente
-        const q = query(
-            collection(db, "movimientos_inventario"), 
-            where("userId", "==", currentUser.uid)
-        );
+        const q = query(collection(db, "movimientos_inventario"), where("userId", "==", currentUser.uid));
         const snapshot = await getDocs(q);
         
         movimientosCache = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        
-        // Ordenar manualmente por fecha (más reciente primero)
         movimientosCache.sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
 
-        filtrarMovimientos(); // Dibujar la tabla
+        filtrarMovimientos(); 
     } catch (error) {
-        tbody.innerHTML = `<tr><td colspan="6" class="text-center text-danger">Error al cargar: ${error.message}</td></tr>`;
+        acordeon.innerHTML = `<div class="text-center text-danger p-3">Error al cargar: ${error.message}</div>`;
     }
 }
 
 window.filtrarMovimientos = function() {
-    const tbody = document.getElementById('tabla-movimientos');
+    const acordeon = document.getElementById('acordeon-movimientos');
     const buscador = document.getElementById('mov-buscador').value.toLowerCase().trim();
     const tipoFiltro = document.getElementById('mov-filtro-tipo').value;
     const fechaFiltro = document.getElementById('mov-filtro-fecha').value;
 
     const filtrados = movimientosCache.filter(mov => {
-        // Filtro de texto (busca en nombre de producto o comentario)
         const coincideTexto = mov.productoNombre.toLowerCase().includes(buscador) || 
-                              (mov.comentario && mov.comentario.toLowerCase().includes(buscador));
-        
-        // Filtro de tipo (entrada/salida)
+                              (mov.comentario && mov.comentario.toLowerCase().includes(buscador)) ||
+                              (mov.numeroDTE && mov.numeroDTE.toLowerCase().includes(buscador)) ||
+                              (mov.codigoGeneracion && mov.codigoGeneracion.toLowerCase().includes(buscador));
         const coincideTipo = tipoFiltro === "" || mov.tipo === tipoFiltro;
-
-        // Filtro de fecha (si se selecciona una fecha, busca movimientos desde ese día en adelante)
+        
         let coincideFecha = true;
         if (fechaFiltro) {
             const fechaMov = new Date(mov.fecha).toISOString().split('T')[0];
             coincideFecha = fechaMov >= fechaFiltro;
         }
-
         return coincideTexto && coincideTipo && coincideFecha;
     });
 
-    tbody.innerHTML = '';
-
     if (filtrados.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">No se encontraron movimientos.</td></tr>';
+        acordeon.innerHTML = '<div class="text-center text-muted p-4">No se encontraron movimientos.</div>';
         return;
     }
 
+    const grupos = {};
     filtrados.forEach(mov => {
-        const fechaObj = new Date(mov.fecha);
-        const fechaStr = fechaObj.toLocaleDateString() + ' ' + fechaObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        
-        const badgeTipo = mov.tipo === 'entrada' 
-            ? '<span class="badge bg-success">Entrada</span>' 
-            : '<span class="badge bg-danger">Salida</span>';
-            
-        const cantMostrar = Number.isInteger(mov.cantidad) ? mov.cantidad : mov.cantidad.toFixed(2);
-
-        tbody.innerHTML += `
-            <tr>
-                <td><span class="text-muted small">${fechaStr}</span></td>
-                <td class="fw-bold">${mov.productoNombre}</td>
-                <td>${mov.medida}</td>
-                <td>${badgeTipo}</td>
-                <td class="fw-bold ${mov.tipo === 'entrada' ? 'text-success' : 'text-danger'}">
-                    ${mov.tipo === 'entrada' ? '+' : '-'}${cantMostrar}
-                </td>
-                <td><span class="text-muted small">${mov.comentario || '-'}</span></td>
-            </tr>
-        `;
+        // Agrupar por código de generación, si no tiene por loteId, si no (antiguos) por la fecha exacta
+        const key = mov.codigoGeneracion || mov.loteId || new Date(mov.fecha).toISOString();
+        if (!grupos[key]) {
+            grupos[key] = {
+                codigo: mov.codigoGeneracion || 'Sin Código',
+                dte: mov.numeroDTE || '',
+                fecha: mov.fecha,
+                items: []
+            };
+        }
+        grupos[key].items.push(mov);
     });
+
+    acordeon.innerHTML = '';
+    let index = 0;
+    
+    for (const key in grupos) {
+        const g = grupos[key];
+        const fechaObj = new Date(g.fecha);
+        const fechaStr = fechaObj.toLocaleDateString() + ' ' + fechaObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        const collapseId = `collapse-${index}`;
+
+        let filasHTML = '';
+        g.items.forEach(item => {
+            const badgeTipo = item.tipo === 'entrada' ? '<span class="badge bg-success">Entrada</span>' : '<span class="badge bg-danger">Salida</span>';
+            const cant = Number.isInteger(item.cantidad) ? item.cantidad : item.cantidad.toFixed(2);
+            filasHTML += `
+                <tr>
+                    <td>${item.productoNombre}</td>
+                    <td>${item.medida}</td>
+                    <td>${badgeTipo}</td>
+                    <td class="fw-bold ${item.tipo === 'entrada' ? 'text-success' : 'text-danger'}">${item.tipo === 'entrada' ? '+' : '-'}${cant}</td>
+                    <td>${item.comentario || '-'}</td>
+                </tr>
+            `;
+        });
+
+        acordeon.innerHTML += `
+            <div class="accordion-item">
+                <h2 class="accordion-header" id="heading-${index}">
+                    <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#${collapseId}" aria-expanded="false" aria-controls="${collapseId}">
+                        <div class="d-flex w-100 justify-content-between pe-3">
+                            <span><b>Lote:</b> ${g.codigo} ${g.dte ? `| <b>DTE:</b> ${g.dte}` : ''}</span>
+                            <span class="text-muted small">${fechaStr} | ${g.items.length} ítem(s)</span>
+                        </div>
+                    </button>
+                </h2>
+                <div id="${collapseId}" class="accordion-collapse collapse" aria-labelledby="heading-${index}" data-bs-parent="#acordeon-movimientos">
+                    <div class="accordion-body p-0">
+                        <table class="table table-sm mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Producto</th>
+                                    <th>Medida</th>
+                                    <th>Tipo</th>
+                                    <th>Cantidad</th>
+                                    <th>Comentario</th>
+                                </tr>
+                            </thead>
+                            <tbody>${filasHTML}</tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        `;
+        index++;
+    }
 };
 
 window.limpiarFiltrosMov = function() {
