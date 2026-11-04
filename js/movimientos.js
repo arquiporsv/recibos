@@ -6,7 +6,6 @@ let currentUser = null;
 let transaccionesCache = [];
 let productosCache = [];
 
-// Variables temporales para el modal
 let txItemsTemp = [];
 let txPagosTemp = [];
 
@@ -29,7 +28,6 @@ async function cargarProductos() {
     const snap = await getDocs(q);
     productosCache = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
     
-    // Llenar datalist para búsqueda
     const datalist = document.getElementById('datalist-productos');
     datalist.innerHTML = productosCache.map(p => `<option value="${p.nombre}">`).join('');
 }
@@ -39,11 +37,54 @@ async function cargarTransacciones() {
     acordeon.innerHTML = '<div class="text-center p-3">Cargando historial...</div>';
 
     try {
-        // Buscamos en la nueva colección de transacciones
-        const q = query(collection(db, "transacciones"), where("userId", "==", currentUser.uid));
-        const snapshot = await getDocs(q);
-        
-        transaccionesCache = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        // 1. Cargar las transacciones NUEVAS
+        const qTx = query(collection(db, "transacciones"), where("userId", "==", currentUser.uid));
+        const snapTx = await getDocs(qTx);
+        let nuevasTx = snapTx.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+        // 2. Cargar los movimientos ANTIGUOS (para no perder el historial)
+        const qMov = query(collection(db, "movimientos_inventario"), where("userId", "==", currentUser.uid));
+        const snapMov = await getDocs(qMov);
+        let movimientosAntiguos = snapMov.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+        // 3. Adaptar los movimientos antiguos al formato de "transacción" para que se vean bien
+        // Los agrupamos por su loteId o, si no tienen, por la fecha exacta en que se crearon.
+        const gruposAntiguos = {};
+        movimientosAntiguos.forEach(mov => {
+            // Si el movimiento ya pertenece a una transacción nueva, lo ignoramos para no duplicar
+            if (mov.transaccionId) return; 
+
+            const key = mov.loteId || new Date(mov.fecha).toISOString();
+            if (!gruposAntiguos[key]) {
+                gruposAntiguos[key] = {
+                    id: key,
+                    fecha: mov.fecha,
+                    tipo: mov.tipo,
+                    motivo: mov.tipo === 'salida' ? 'Venta (Histórico)' : 'Entrada (Histórico)',
+                    codigoGeneracion: mov.codigoGeneracion || '',
+                    numeroDTE: mov.numeroDTE || '',
+                    comentario: mov.comentario || '',
+                    estadoEntrega: 'Histórico',
+                    montoEnvio: 0,
+                    total: 0,
+                    pagos: [],
+                    items: []
+                };
+            }
+            
+            gruposAntiguos[key].items.push({
+                nombre: mov.productoNombre,
+                medida: mov.medida,
+                cantidad: mov.cantidad,
+                precio: 0, // Los movimientos antiguos no guardaban el precio, se asume 0
+                subtotal: 0
+            });
+        });
+
+        const txAntiguasAdaptadas = Object.values(gruposAntiguos);
+
+        // 4. Unir ambas listas y ordenar por fecha
+        transaccionesCache = [...nuevasTx, ...txAntiguasAdaptadas];
         transaccionesCache.sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
 
         filtrarMovimientos(); 
@@ -62,13 +103,16 @@ window.filtrarMovimientos = function() {
     const fechaFiltro = document.getElementById('mov-filtro-fecha').value;
 
     const filtrados = transaccionesCache.filter(tx => {
-        // Buscar en cliente, código, o nombres de productos
-        const prodsStr = tx.items.map(i => i.nombre.toLowerCase()).join(' ');
+        // Validaciones seguras por si los datos antiguos no tienen items
+        const prodsStr = tx.items ? tx.items.map(i => i.nombre.toLowerCase()).join(' ') : '';
+        
         const coincideTexto = prodsStr.includes(buscador) || 
                               (tx.comentario && tx.comentario.toLowerCase().includes(buscador)) ||
-                              (tx.codigoGeneracion && tx.codigoGeneracion.toLowerCase().includes(buscador));
+                              (tx.codigoGeneracion && tx.codigoGeneracion.toLowerCase().includes(buscador)) ||
+                              (tx.numeroDTE && tx.numeroDTE.toLowerCase().includes(buscador));
         
-        const coincideMotivo = motivoFiltro === "" || tx.motivo === motivoFiltro;
+        // Filtramos que coincida el motivo (si el filtro es "Venta", también mostrará "Venta (Histórico)")
+        const coincideMotivo = motivoFiltro === "" || (tx.motivo && tx.motivo.includes(motivoFiltro));
         
         let coincideFecha = true;
         if (fechaFiltro) {
@@ -91,24 +135,37 @@ window.filtrarMovimientos = function() {
 
         // Generar filas de productos
         let filasHTML = '';
-        tx.items.forEach(item => {
-            const cant = Number.isInteger(item.cantidad) ? item.cantidad : item.cantidad.toFixed(2);
-            filasHTML += `
-                <tr>
-                    <td>${item.nombre}</td>
-                    <td>${item.medida}</td>
-                    <td>${cant}</td>
-                    <td>$${item.precio.toFixed(2)}</td>
-                    <td>$${(item.precio * item.cantidad).toFixed(2)}</td>
-                </tr>
-            `;
-        });
+        let sumaTotal = 0;
+        if (tx.items) {
+            tx.items.forEach(item => {
+                const cant = Number.isInteger(item.cantidad) ? item.cantidad : item.cantidad.toFixed(2);
+                const subtotal = item.subtotal || (item.precio * item.cantidad) || 0;
+                sumaTotal += subtotal;
+                
+                filasHTML += `
+                    <tr>
+                        <td>${item.nombre}</td>
+                        <td>${item.medida}</td>
+                        <td>${cant}</td>
+                        <td>${item.precio ? '$' + item.precio.toFixed(2) : '-'}</td>
+                        <td>${subtotal ? '$' + subtotal.toFixed(2) : '-'}</td>
+                    </tr>
+                `;
+            });
+        }
+
+        // Si la transacción no tiene total guardado (es histórica), calculamos la suma
+        const totalMostrar = tx.total || sumaTotal;
 
         // Generar filas de pagos
         let pagosHTML = '';
-        tx.pagos.forEach(p => {
-            pagosHTML += `<span class="badge bg-info text-dark me-1">${p.metodo}: $${p.monto.toFixed(2)} ${p.fechaAbono ? '('+p.fechaAbono+')' : ''}</span>`;
-        });
+        if (tx.pagos && tx.pagos.length > 0) {
+            tx.pagos.forEach(p => {
+                pagosHTML += `<span class="badge bg-info text-dark me-1">${p.metodo}: $${p.monto.toFixed(2)} ${p.fechaAbono ? '('+p.fechaAbono+')' : ''}</span>`;
+            });
+        } else {
+            pagosHTML = '<span class="text-muted small">No registrados</span>';
+        }
 
         acordeon.innerHTML += `
             <div class="accordion-item">
@@ -120,14 +177,14 @@ window.filtrarMovimientos = function() {
                                 ${tx.codigoGeneracion ? `<b>DTE:</b> ${tx.codigoGeneracion}` : 'Sin DTE'} 
                                 ${tx.estadoEntrega ? `| <b>Estado:</b> ${tx.estadoEntrega}` : ''}
                             </span>
-                            <span class="text-muted small">${fechaStr} | <b>Total: $${tx.total.toFixed(2)}</b></span>
+                            <span class="text-muted small">${fechaStr} | <b>Total: $${totalMostrar.toFixed(2)}</b></span>
                         </div>
                     </button>
                 </h2>
                 <div id="${collapseId}" class="accordion-collapse collapse">
                     <div class="accordion-body p-0">
                         <div class="p-2 bg-light border-bottom">
-                            <small><b>Pagos:</b> ${pagosHTML || 'Ninguno'} | <b>Envío:</b> $${tx.montoEnvio.toFixed(2)}</small>
+                            <small><b>Pagos:</b> ${pagosHTML} | <b>Envío:</b> $${(tx.montoEnvio || 0).toFixed(2)}</small>
                             ${tx.comentario ? `<br><small><b>Comentario:</b> ${tx.comentario}</small>` : ''}
                         </div>
                         <table class="table table-sm mb-0">
@@ -179,7 +236,6 @@ window.cancelarTransaccion = function() {
     bootstrap.Modal.getInstance(document.getElementById('modal-transaccion')).hide();
 };
 
-// 1. Motivos dinámicos
 window.actualizarMotivos = function() {
     const tipo = document.getElementById('tx-tipo').value;
     const selectMotivo = document.getElementById('tx-motivo');
@@ -200,7 +256,6 @@ window.actualizarMotivos = function() {
     }
 };
 
-// 2. Búsqueda de producto y variantes
 window.seleccionarProductoPorNombre = function() {
     const nombre = document.getElementById('tx-prod-search').value;
     const prod = productosCache.find(p => p.nombre === nombre);
@@ -218,7 +273,6 @@ window.seleccionarProductoPorNombre = function() {
     });
 };
 
-// 3. Agregar items
 window.agregarItemTransaccion = function() {
     const nombre = document.getElementById('tx-prod-search').value;
     const varIndex = document.getElementById('tx-variante').value;
@@ -247,7 +301,6 @@ window.agregarItemTransaccion = function() {
 
     renderizarItemsTx();
     
-    // Limpiar inputs
     document.getElementById('tx-prod-search').value = '';
     document.getElementById('tx-variante').innerHTML = '';
     document.getElementById('tx-cantidad').value = '1';
@@ -280,7 +333,6 @@ window.eliminarItemTx = function(index) {
     renderizarItemsTx();
 };
 
-// 4. Envío y Totales
 window.toggleEnvio = function() {
     const checked = document.getElementById('tx-check-envio').checked;
     document.getElementById('div-envio').style.display = checked ? 'block' : 'none';
@@ -297,13 +349,11 @@ window.calcularTotalesTransaccion = function() {
     document.getElementById('lbl-envio').textContent = `$${envio.toFixed(2)}`;
     document.getElementById('lbl-total').textContent = `$${total.toFixed(2)}`;
     
-    // Verificar pagos
     const totalPagado = txPagosTemp.reduce((sum, p) => sum + p.monto, 0);
     document.getElementById('lbl-total-pagos').textContent = `$${totalPagado.toFixed(2)}`;
-    document.getElementById('lbl-total-pagos').className = (totalPagado === total && total > 0) ? 'text-success fw-bold' : 'text-danger fw-bold';
+    document.getElementById('lbl-total-pagos').className = (Math.abs(totalPagado - total) < 0.01 && total > 0) ? 'text-success fw-bold' : 'text-danger fw-bold';
 };
 
-// 5. Pagos
 window.toggleFechaAbono = function() {
     const metodo = document.getElementById('pago-metodo').value;
     document.getElementById('div-fecha-abono').style.display = (metodo === 'Efectivo' || metodo === 'Cheque') ? 'block' : 'none';
@@ -348,13 +398,11 @@ window.eliminarPago = function(index) {
     renderizarPagosTx();
 };
 
-// 6. Estado de Entrega
 window.toggleFechaPiloto = function() {
     const estado = document.getElementById('tx-estado-entrega').value;
     document.getElementById('div-fecha-entrega').style.display = (estado === 'Entregado por Piloto') ? 'block' : 'none';
 };
 
-// 7. GUARDAR TRANSACCIÓN
 window.guardarTransaccion = async function() {
     if (txItemsTemp.length === 0) return showAlert('Aviso', 'No has agregado productos.', 'warning');
 
@@ -363,7 +411,6 @@ window.guardarTransaccion = async function() {
     const total = subtotal + envio;
     const totalPagado = txPagosTemp.reduce((sum, p) => sum + p.monto, 0);
 
-    // Validar que los pagos coincidan con el total
     if (Math.abs(totalPagado - total) > 0.01) {
         return showAlert('Aviso', `El total de pagos ($${totalPagado.toFixed(2)}) no coincide con el total de la transacción ($${total.toFixed(2)}).`, 'warning');
     }
@@ -382,26 +429,15 @@ window.guardarTransaccion = async function() {
     btnGuardar.textContent = 'Procesando...';
 
     try {
-        // 1. Guardar cabecera de transacción
         const txRef = await addDoc(collection(db, "transacciones"), {
-            userId: currentUser.uid,
-            tipo,
-            motivo,
-            codigoGeneracion: codGen,
-            numeroDTE: numDte,
-            subtotal,
-            montoEnvio: envio,
-            total,
-            pagos: txPagosTemp,
-            estadoEntrega,
-            fechaEntrega: estadoEntrega === 'Entregado por Piloto' ? fechaEntrega : '',
-            comentario,
-            items: txItemsTemp,
-            loteId,
+            userId: currentUser.uid, tipo, motivo,
+            codigoGeneracion: codGen, numeroDTE: numDte,
+            subtotal, montoEnvio: envio, total, pagos: txPagosTemp,
+            estadoEntrega, fechaEntrega: estadoEntrega === 'Entregado por Piloto' ? fechaEntrega : '',
+            comentario, items: txItemsTemp, loteId,
             fecha: new Date().toISOString()
         });
 
-        // 2. Actualizar stock y guardar movimientos detallados
         for (const item of txItemsTemp) {
             const prod = productosCache.find(p => p.id === item.prodId);
             if (prod) {
@@ -410,24 +446,18 @@ window.guardarTransaccion = async function() {
             }
 
             await addDoc(collection(db, "movimientos_inventario"), {
-                userId: currentUser.uid,
-                transaccionId: txRef.id,
-                productoId: item.prodId,
-                productoNombre: item.nombre,
-                medida: item.medida,
-                tipo,
-                cantidad: item.cantidad,
-                precioUnitario: item.precio,
-                subtotal: item.cantidad * item.precio,
-                loteId,
-                fecha: new Date().toISOString()
+                userId: currentUser.uid, transaccionId: txRef.id,
+                productoId: item.prodId, productoNombre: item.nombre,
+                medida: item.medida, tipo, cantidad: item.cantidad,
+                precioUnitario: item.precio, subtotal: item.cantidad * item.precio,
+                loteId, fecha: new Date().toISOString()
             });
         }
 
         showAlert('Éxito', 'Transacción registrada correctamente.', 'success');
         cancelarTransaccion();
-        await cargarProductos(); // Recargar stock para futuras transacciones
-        await cargarTransacciones(); // Recargar historial
+        await cargarProductos(); 
+        await cargarTransacciones(); 
     } catch (error) {
         showAlert('Error', error.message, 'danger');
     } finally {
