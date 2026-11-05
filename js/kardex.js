@@ -32,7 +32,6 @@ async function cargarDatosIniciales() {
         const snapMov = await getDocs(qMov);
         
         todosLosMovimientos = snapMov.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        // Ordenar cronológicamente de más antiguo a más reciente
         todosLosMovimientos.sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
 
         aplicarFiltrosKardex();
@@ -62,27 +61,44 @@ window.cargarVariantesKardex = function() {
 };
 
 // ==========================================
-// CÁLCULO DEL STOCK DE APERTURA
+// CÁLCULO DEL STOCK INICIAL
 // ==========================================
-// Solo se calcula si hay un producto Y una medida seleccionada.
-// Si no, devuelve 0 para que el saldo fluya desde los movimientos.
 function calcularStockInicial(prodFiltro, medFiltro) {
-    if (!prodFiltro || !medFiltro) return 0;
-
-    const p = productosCache.find(x => x.id === prodFiltro);
-    if (!p) return 0;
+    let currentStock = 0;
     
-    const v = p.variantes.find(x => x.medida === medFiltro);
-    if (!v) return 0;
-    
-    const currentStock = v.stock;
+    // CASO 1: Filtro por producto y medida específica
+    if (prodFiltro && medFiltro) {
+        const p = productosCache.find(x => x.id === prodFiltro);
+        if (p) {
+            const v = p.variantes.find(x => x.medida === medFiltro);
+            if (v) currentStock = v.stock;
+        }
+    } 
+    // CASO 2: Filtro solo por producto (suma todas sus medidas)
+    else if (prodFiltro) {
+        const p = productosCache.find(x => x.id === prodFiltro);
+        if (p) {
+            currentStock = p.variantes.reduce((sum, v) => sum + v.stock, 0);
+        }
+    } 
+    // CASO 3: Sin filtro (Kardex General - suma TODO el inventario)
+    else {
+        productosCache.forEach(p => {
+            currentStock += p.variantes.reduce((sum, v) => sum + v.stock, 0);
+        });
+    }
 
-    // Calculamos el total histórico de entradas y salidas de esta medida específica
-    const movsHistoricos = todosLosMovimientos.filter(m => m.productoId === prodFiltro && m.medida === medFiltro);
+    // Filtrar los movimientos correspondientes al filtro actual para deshacer el historial
+    const movsHistoricos = todosLosMovimientos.filter(m => {
+        const mProd = prodFiltro === "" || m.productoId === prodFiltro;
+        const mMed = medFiltro === "" || m.medida === medFiltro;
+        return mProd && mMed;
+    });
+
     const totalIn = movsHistoricos.filter(m => m.tipo === 'entrada').reduce((s, m) => s + parseFloat(m.cantidad), 0);
     const totalOut = movsHistoricos.filter(m => m.tipo === 'salida').reduce((s, m) => s + parseFloat(m.cantidad), 0);
 
-    // Stock Inicial = Stock Actual - Entradas + Salidas
+    // Fórmula: Stock Inicial = Stock Actual - Entradas + Salidas
     return currentStock - totalIn + totalOut;
 }
 
@@ -97,7 +113,6 @@ window.aplicarFiltrosKardex = function() {
     const fDesde = document.getElementById('kdx-fecha-desde').value;
     const fHasta = document.getElementById('kdx-fecha-hasta').value;
 
-    // 1. Filtrar movimientos
     const movimientosFiltrados = todosLosMovimientos.filter(mov => {
         const coincideTexto = mov.productoNombre.toLowerCase().includes(buscador) || 
                               mov.medida.toLowerCase().includes(buscador) ||
@@ -114,21 +129,18 @@ window.aplicarFiltrosKardex = function() {
         return coincideTexto && coincideTipo && coincideProd && coincideMed && coincideFecha;
     });
 
-    // 2. Calcular stock inicial (solo si hay producto y medida)
     const stockInicial = calcularStockInicial(prodFiltro, medFiltro);
 
-    // 3. Renderizar
-    renderizarKardex(movimientosFiltrados, stockInicial, prodFiltro, medFiltro);
+    renderizarKardex(movimientosFiltrados, stockInicial);
 };
 
-function renderizarKardex(movimientos, stockInicial, prodFiltro, medFiltro) {
+function renderizarKardex(movimientos, stockInicial) {
     const tbody = document.getElementById('kdx-tabla-body');
     tbody.innerHTML = '';
 
     const resumen = document.getElementById('kdx-resumen');
     const titulo = document.getElementById('kdx-titulo');
 
-    // Validar si hay datos para mostrar
     if (movimientos.length === 0 && stockInicial === 0) {
         tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-4">No hay movimientos que coincidan con los filtros.</td></tr>';
         resumen.classList.add('d-none');
@@ -136,29 +148,25 @@ function renderizarKardex(movimientos, stockInicial, prodFiltro, medFiltro) {
         return;
     }
 
-    // El saldo acumulado SIEMPRE inicia con el stock inicial (0 si no hay filtro específico)
     let saldoAcumulado = stockInicial; 
     let totalEntradas = 0;
     let totalSalidas = 0;
 
-    // Si hay un producto y medida específicos, mostrar la fila de Stock de Apertura
-    if (prodFiltro && medFiltro) {
-        tbody.innerHTML += `
-            <tr class="table-light">
-                <td class="text-nowrap">-</td>
-                <td colspan="3" class="text-end fw-bold text-muted">Stock de Apertura (Saldo Inicial):</td>
-                <td class="text-end">-</td>
-                <td class="text-end">-</td>
-                <td class="text-end">-</td>
-                <td class="text-end fw-bold text-primary">${Number.isInteger(stockInicial) ? stockInicial : stockInicial.toFixed(2)}</td>
-            </tr>
-        `;
-    }
+    // Mostrar SIEMPRE la fila de Saldo Inicial para que el flujo tenga sentido
+    tbody.innerHTML += `
+        <tr class="table-light">
+            <td class="text-nowrap">-</td>
+            <td colspan="3" class="text-end fw-bold text-muted">Saldo Inicial (Apertura):</td>
+            <td class="text-end">-</td>
+            <td class="text-end">-</td>
+            <td class="text-end">-</td>
+            <td class="text-end fw-bold text-primary">${Number.isInteger(stockInicial) ? stockInicial : stockInicial.toFixed(2)}</td>
+        </tr>
+    `;
 
     movimientos.forEach(mov => {
         const cant = parseFloat(mov.cantidad);
         
-        // LÓGICA CLAVE: Sumar entrada, restar salida
         if (mov.tipo === 'entrada') {
             saldoAcumulado += cant;
             totalEntradas += cant;
@@ -172,6 +180,7 @@ function renderizarKardex(movimientos, stockInicial, prodFiltro, medFiltro) {
         
         const cantMostrar = Number.isInteger(cant) ? cant : cant.toFixed(2);
         const saldoMostrar = Number.isInteger(saldoAcumulado) ? saldoAcumulado : saldoAcumulado.toFixed(2);
+        // El saldo es rojo solo si el flujo hace que baje de 0
         const colorSaldo = saldoAcumulado < 0 ? 'text-danger fw-bold' : 'text-dark fw-bold';
 
         const motivoBadge = mov.tipo === 'entrada' 
@@ -192,7 +201,6 @@ function renderizarKardex(movimientos, stockInicial, prodFiltro, medFiltro) {
         `;
     });
 
-    // Mostrar panel de resumen
     resumen.classList.remove('d-none');
     document.getElementById('kdx-total-ent').textContent = Number.isInteger(totalEntradas) ? totalEntradas : totalEntradas.toFixed(2);
     document.getElementById('kdx-total-sal').textContent = Number.isInteger(totalSalidas) ? totalSalidas : totalSalidas.toFixed(2);
