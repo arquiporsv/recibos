@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kardex - ERP</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="css/styles.css">
+    <link rel="stylesheet" href="css/inventario.css">
+</head>
+<body>
+    <div id="app-container">
+        <!-- SIDEBAR DINÁMICO -->
+        <aside id="sidebar-container" class="sidebar"></aside>
+
+        <main class="main-content">
+            <header class="view-header">
+                <h2>Kardex de Productos</h2>
+            </header>
+
+            <!-- FILTROS DE CONSULTA -->
+            <div class="card p-3 shadow-sm mb-3 border-top border-primary border-3">
+                <div class="row align-items-end">
+                    <div class="col-md-4 mb-2 mb-md-0">
+                        <label class="form-label text-muted small mb-1">Seleccionar Producto</label>
+                        <select id="kdx-producto" class="form-select" onchange="cargarVariantesKardex()">
+                            <option value="">-- Seleccione un producto --</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3 mb-2 mb-md-0">
+                        <label class="form-label text-muted small mb-1">Medida / Variante</label>
+                        <select id="kdx-variante" class="form-select">
+                            <option value="">-- Seleccione medida --</option>
+                        </select>
+                    </div>
+                    <div class="col-md-2 mb-2 mb-md-0">
+                        <label class="form-label text-muted small mb-1">Desde</label>
+                        <input type="date" id="kdx-fecha-desde" class="form-control">
+                    </div>
+                    <div class="col-md-2 mb-2 mb-md-0">
+                        <label class="form-label text-muted small mb-1">Hasta</label>
+                        <input type="date" id="kdx-fecha-hasta" class="form-control">
+                    </div>
+                    <div class="col-md-1 text-end">
+                        <button onclick="generarKardex()" class="btn btn-primary w-100" id="btn-generar-kdx">🔍</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TABLA DE KARDEX -->
+            <div class="card p-3 shadow-sm">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h5 class="mb-0" id="kdx-titulo">Seleccione un producto para ver el historial</h5>
+                    <div id="kdx-resumen" class="d-none">
+                        <span class="badge bg-success fs-6 me-2">Entradas: <span id="kdx-total-ent">0</span></span>
+                        <span class="badge bg-danger fs-6 me-2">Salidas: <span id="kdx-total-sal">0</span></span>
+                        <span class="badge bg-primary fs-6">Saldo Final: <span id="kdx-saldo-fin">0</span></span>
+                    </div>
+                </div>
+
+                <div class="table-responsive">
+                    <table class="table table-sm table-bordered table-hover align-middle">
+                        <thead class="table-dark">
+                            <tr>
+                                <th>Fecha</th>
+                                <th>Referencia / DTE</th>
+                                <th>Motivo</th>
+                                <th class="text-end text-success">Entrada</th>
+                                <th class="text-end text-danger">Salida</th>
+                                <th class="text-end">Precio Unit.</th>
+                                <th class="text-end fw-bold">Saldo</th>
+                            </tr>
+                        </thead>
+                        <tbody id="kdx-tabla-body">
+                            <tr><td colspan="7" class="text-center text-muted py-4">No hay datos para mostrar.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- SCRIPTS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script type="module" src="js/layout.js"></script>
+    <script type="module" src="js/kardex.js"></script>
+</body>
+</html>
