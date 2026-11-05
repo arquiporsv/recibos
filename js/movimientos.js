@@ -22,7 +22,6 @@ function getFormattedDate(date) {
 
 checkAuth(async (user) => {
     currentUser = user;
-    document.getElementById('user-email-display').textContent = user.email;
     await cargarProductos();
     await cargarTransacciones();
 });
