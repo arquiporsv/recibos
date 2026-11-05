@@ -10,7 +10,6 @@ let movimientosLoteTemp = [];
 
 checkAuth((user) => {
     currentUser = user;
-    document.getElementById('user-email-display').textContent = user.email;
     inicializarAppPrivada();
 });
 
