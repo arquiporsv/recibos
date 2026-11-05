@@ -32,7 +32,7 @@ async function cargarDatosIniciales() {
         const snapMov = await getDocs(qMov);
         
         todosLosMovimientos = snapMov.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        // Ordenar cronológicamente
+        // Ordenar cronológicamente de más antiguo a más reciente
         todosLosMovimientos.sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
 
         aplicarFiltrosKardex();
@@ -62,40 +62,27 @@ window.cargarVariantesKardex = function() {
 };
 
 // ==========================================
-// CÁLCULO DEL STOCK INICIAL (LA CLAVE)
+// CÁLCULO DEL STOCK DE APERTURA
 // ==========================================
+// Solo se calcula si hay un producto Y una medida seleccionada.
+// Si no, devuelve 0 para que el saldo fluya desde los movimientos.
 function calcularStockInicial(prodFiltro, medFiltro) {
-    // Si no hay un producto seleccionado, el saldo inicial es 0 (es un kardex global)
-    if (!prodFiltro) return 0;
+    if (!prodFiltro || !medFiltro) return 0;
 
-    let currentStock = 0;
+    const p = productosCache.find(x => x.id === prodFiltro);
+    if (!p) return 0;
     
-    // Obtenemos el stock actual del producto/medida
-    if (prodFiltro && medFiltro) {
-        const p = productosCache.find(x => x.id === prodFiltro);
-        if (p) {
-            const v = p.variantes.find(x => x.medida === medFiltro);
-            if (v) currentStock = v.stock;
-        }
-    } else if (prodFiltro) {
-        // Si es todo el producto, sumamos el stock de todas sus variantes
-        const p = productosCache.find(x => x.id === prodFiltro);
-        if (p) {
-            currentStock = p.variantes.reduce((sum, v) => sum + v.stock, 0);
-        }
-    }
+    const v = p.variantes.find(x => x.medida === medFiltro);
+    if (!v) return 0;
+    
+    const currentStock = v.stock;
 
-    // Calculamos el total histórico de entradas y salidas de ese producto/medida específico
-    const movsHistoricos = todosLosMovimientos.filter(m => {
-        const mProd = prodFiltro === "" || m.productoId === prodFiltro;
-        const mMed = medFiltro === "" || m.medida === medFiltro;
-        return mProd && mMed;
-    });
-
+    // Calculamos el total histórico de entradas y salidas de esta medida específica
+    const movsHistoricos = todosLosMovimientos.filter(m => m.productoId === prodFiltro && m.medida === medFiltro);
     const totalIn = movsHistoricos.filter(m => m.tipo === 'entrada').reduce((s, m) => s + parseFloat(m.cantidad), 0);
     const totalOut = movsHistoricos.filter(m => m.tipo === 'salida').reduce((s, m) => s + parseFloat(m.cantidad), 0);
 
-    // Fórmula: Stock Inicial = Stock Actual - Entradas + Salidas
+    // Stock Inicial = Stock Actual - Entradas + Salidas
     return currentStock - totalIn + totalOut;
 }
 
@@ -110,7 +97,7 @@ window.aplicarFiltrosKardex = function() {
     const fDesde = document.getElementById('kdx-fecha-desde').value;
     const fHasta = document.getElementById('kdx-fecha-hasta').value;
 
-    // 1. Filtrar movimientos por los parámetros de la vista
+    // 1. Filtrar movimientos
     const movimientosFiltrados = todosLosMovimientos.filter(mov => {
         const coincideTexto = mov.productoNombre.toLowerCase().includes(buscador) || 
                               mov.medida.toLowerCase().includes(buscador) ||
@@ -127,20 +114,21 @@ window.aplicarFiltrosKardex = function() {
         return coincideTexto && coincideTipo && coincideProd && coincideMed && coincideFecha;
     });
 
-    // 2. Calcular el saldo inicial real basado en la selección
+    // 2. Calcular stock inicial (solo si hay producto y medida)
     const stockInicial = calcularStockInicial(prodFiltro, medFiltro);
 
-    // 3. Renderizar pasando el stock inicial
-    renderizarKardex(movimientosFiltrados, stockInicial);
+    // 3. Renderizar
+    renderizarKardex(movimientosFiltrados, stockInicial, prodFiltro, medFiltro);
 };
 
-function renderizarKardex(movimientos, stockInicial) {
+function renderizarKardex(movimientos, stockInicial, prodFiltro, medFiltro) {
     const tbody = document.getElementById('kdx-tabla-body');
     tbody.innerHTML = '';
 
     const resumen = document.getElementById('kdx-resumen');
     const titulo = document.getElementById('kdx-titulo');
 
+    // Validar si hay datos para mostrar
     if (movimientos.length === 0 && stockInicial === 0) {
         tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-4">No hay movimientos que coincidan con los filtros.</td></tr>';
         resumen.classList.add('d-none');
@@ -148,23 +136,29 @@ function renderizarKardex(movimientos, stockInicial) {
         return;
     }
 
-    // EL SALDO ACUMULADO INICIA CON EL STOCK INICIAL CALCULADO
+    // El saldo acumulado SIEMPRE inicia con el stock inicial (0 si no hay filtro específico)
     let saldoAcumulado = stockInicial; 
     let totalEntradas = 0;
     let totalSalidas = 0;
 
-    // Opcional: Mostrar una fila virtual del "Stock Inicial" si el saldo es mayor a 0
-    if (stockInicial !== 0 && movimientos.length > 0) {
+    // Si hay un producto y medida específicos, mostrar la fila de Stock de Apertura
+    if (prodFiltro && medFiltro) {
         tbody.innerHTML += `
             <tr class="table-light">
-                <td colspan="7" class="text-end fw-bold text-muted">Saldo Inicial (Stock de apertura):</td>
-                <td class="text-end fw-bold">${Number.isInteger(stockInicial) ? stockInicial : stockInicial.toFixed(2)}</td>
+                <td class="text-nowrap">-</td>
+                <td colspan="3" class="text-end fw-bold text-muted">Stock de Apertura (Saldo Inicial):</td>
+                <td class="text-end">-</td>
+                <td class="text-end">-</td>
+                <td class="text-end">-</td>
+                <td class="text-end fw-bold text-primary">${Number.isInteger(stockInicial) ? stockInicial : stockInicial.toFixed(2)}</td>
             </tr>
         `;
     }
 
     movimientos.forEach(mov => {
         const cant = parseFloat(mov.cantidad);
+        
+        // LÓGICA CLAVE: Sumar entrada, restar salida
         if (mov.tipo === 'entrada') {
             saldoAcumulado += cant;
             totalEntradas += cant;
@@ -198,17 +192,11 @@ function renderizarKardex(movimientos, stockInicial) {
         `;
     });
 
+    // Mostrar panel de resumen
     resumen.classList.remove('d-none');
-    // Nota: Las entradas y salidas en el resumen solo suman los MOVIMIENTOS, no el stock inicial.
     document.getElementById('kdx-total-ent').textContent = Number.isInteger(totalEntradas) ? totalEntradas : totalEntradas.toFixed(2);
     document.getElementById('kdx-total-sal').textContent = Number.isInteger(totalSalidas) ? totalSalidas : totalSalidas.toFixed(2);
-    
-    // El saldo final sí incluye todo
     document.getElementById('kdx-saldo-fin').textContent = Number.isInteger(saldoAcumulado) ? saldoAcumulado : saldoAcumulado.toFixed(2);
-    
-    if (movimientos.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-4">No hay movimientos registrados, pero el saldo inicial es: ' + stockInicial + '</td></tr>';
-    }
 }
 
 window.limpiarFiltrosKardex = function() {
