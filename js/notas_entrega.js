@@ -1,5 +1,5 @@
 import { db, auth, checkAuth, showAlert, showConfirm } from './firebase.js';
-import { collection, getDocs, query, where, addDoc, doc, updateDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+import { collection, getDocs, query, where, addDoc, doc, updateDoc, deleteDoc, getDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
 let currentUser = null;
 let notasCache = [];
@@ -9,6 +9,15 @@ let notaEditandoId = null;
 checkAuth(async (user) => {
     currentUser = user;
     await cargarNotas();
+    
+    // Lógica para autogenerar la nota desde un Movimiento
+    const urlParams = new URLSearchParams(window.location.search);
+    const txId = urlParams.get('txId');
+    if (txId) {
+        await prepararNotaDesdeMovimiento(txId);
+        // Limpiar la URL para que al recargar no vuelva a salir el modal
+        window.history.replaceState({}, document.title, window.location.pathname);
+    }
 });
 
 // ==========================================
@@ -23,7 +32,6 @@ async function cargarNotas() {
         const snap = await getDocs(q);
         
         notasCache = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        // Ordenar por fecha descendente (la más reciente primero)
         notasCache.sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
 
         filtrarNotas();
@@ -53,7 +61,8 @@ window.filtrarNotas = function() {
 
         let filasHTML = '';
         nota.productos.forEach((p, i) => {
-            filasHTML += `<tr><td>${i+1}</td><td>${p.nombre}</td><td>${Number.isInteger(p.cantidad) ? p.cantidad : p.cantidad.toFixed(2)} C/U</td></tr>`;
+            const cantFormat = Number.isInteger(p.cantidad) ? p.cantidad.toFixed(2) : p.cantidad.toFixed(2);
+            filasHTML += `<tr><td class="text-center">${i+1}</td><td>${p.nombre}</td><td class="text-center">${cantFormat} C/U</td></tr>`;
         });
 
         acordeon.innerHTML += `
@@ -72,11 +81,12 @@ window.filtrarNotas = function() {
                 <div id="${collapseId}" class="accordion-collapse collapse">
                     <div class="accordion-body p-0">
                         <div class="p-3 bg-light border-bottom">
-                            <p class="mb-1"><b>Título:</b> ${nota.titulo}</p>
+                            <p class="mb-1"><b>Motivo:</b> ${nota.titulo}</p>
+                            ${nota.referencia ? `<p class="mb-1 small"><b>Ref:</b> ${nota.referencia}</p>` : ''}
                             ${nota.descripcionExtra ? `<p class="mb-0 small text-muted"><b>Nota:</b> ${nota.descripcionExtra}</p>` : ''}
                         </div>
                         <table class="table table-sm mb-0">
-                            <thead class="table-light"><tr><th>N°</th><th>Producto</th><th>Cantidad</th></tr></thead>
+                            <thead class="table-light"><tr><th class="text-center">N°</th><th>Producto</th><th class="text-center">Cantidad</th></tr></thead>
                             <tbody>${filasHTML}</tbody>
                         </table>
                         <div class="text-end p-2 border-top">
@@ -92,13 +102,62 @@ window.filtrarNotas = function() {
 };
 
 // ==========================================
-// MODAL CREAR / EDITAR
+// CREACIÓN DESDE MOVIMIENTOS
+// ==========================================
+async function prepararNotaDesdeMovimiento(txId) {
+    try {
+        const txDoc = await getDoc(doc(db, "transacciones", txId));
+        if (!txDoc.exists()) return showAlert('Error', 'No se encontró la transacción original.', 'danger');
+        
+        const tx = txDoc.data();
+        
+        notaEditandoId = null;
+        productosTemp = tx.items.map(i => ({ nombre: i.nombre + ' - ' + i.medida, cantidad: i.cantidad }));
+        
+        // Autogenerar número
+        let nextNum = 1;
+        if (notasCache.length > 0) {
+            const nums = notasCache.map(n => parseInt(n.numeroNota.replace(/\D/g, '')) || 0);
+            nextNum = Math.max(...nums) + 1;
+        }
+        
+        // Llenar el modal
+        document.getElementById('modal-nota-titulo').textContent = 'Generar Nota desde Movimiento';
+        document.getElementById('btn-guardar-nota').textContent = 'Guardar y Generar PDF';
+        document.getElementById('ne-numero').value = 'NE' + nextNum;
+        document.getElementById('ne-fecha').value = new Date().toISOString().split('T')[0];
+        document.getElementById('ne-titulo').value = 'NOTA DE ENTREGA'; // Puedes cambiarlo a "CAMBIO DE PRODUCTO" si lo deseas por defecto
+        document.getElementById('ne-cliente-nombre').value = 'Cliente'; // Si guardaste el nombre del cliente en la transacción, ponlo aquí
+        document.getElementById('ne-cliente-dir').value = '';
+        document.getElementById('ne-cliente-tel').value = '';
+        
+        // Extraer DTE si existe
+        let refFactura = '';
+        if (tx.dtes && tx.dtes.length > 0) {
+            refFactura = tx.dtes[0].numero + ' / ' + tx.dtes[0].codigo;
+        }
+        document.getElementById('ne-referencia').value = refFactura;
+        
+        document.getElementById('ne-descripcion-extra').value = tx.comentario || '';
+        
+        document.getElementById('ne-prod-nombre').value = '';
+        document.getElementById('ne-prod-cant').value = '1';
+
+        renderizarProductosTemp();
+        new bootstrap.Modal(document.getElementById('modal-nota')).show();
+        
+    } catch (error) {
+        showAlert('Error', error.message, 'danger');
+    }
+}
+
+// ==========================================
+// MODAL CREAR / EDITAR (Manual)
 // ==========================================
 window.abrirModalNota = function() {
     notaEditandoId = null;
     productosTemp = [];
     
-    // Autogenerar número de nota si es nueva
     let nextNum = 1;
     if (notasCache.length > 0) {
         const nums = notasCache.map(n => parseInt(n.numeroNota.replace(/\D/g, '')) || 0);
@@ -113,6 +172,7 @@ window.abrirModalNota = function() {
     document.getElementById('ne-cliente-nombre').value = '';
     document.getElementById('ne-cliente-dir').value = '';
     document.getElementById('ne-cliente-tel').value = '';
+    document.getElementById('ne-referencia').value = '';
     document.getElementById('ne-descripcion-extra').value = '';
     
     document.getElementById('ne-prod-nombre').value = '';
@@ -127,7 +187,7 @@ window.editarNota = function(id) {
     if (!nota) return;
 
     notaEditandoId = id;
-    productosTemp = JSON.parse(JSON.stringify(nota.productos)); // Copia profunda
+    productosTemp = JSON.parse(JSON.stringify(nota.productos));
 
     document.getElementById('modal-nota-titulo').textContent = 'Editar Nota de Entrega';
     document.getElementById('btn-guardar-nota').textContent = 'Actualizar Nota';
@@ -138,18 +198,15 @@ window.editarNota = function(id) {
     document.getElementById('ne-cliente-nombre').value = nota.clienteNombre;
     document.getElementById('ne-cliente-dir').value = nota.clienteDireccion || '';
     document.getElementById('ne-cliente-tel').value = nota.clienteTelefono || '';
+    document.getElementById('ne-referencia').value = nota.referencia || '';
     document.getElementById('ne-descripcion-extra').value = nota.descripcionExtra || '';
 
     renderizarProductosTemp();
     new bootstrap.Modal(document.getElementById('modal-nota')).show();
 };
 
-window.cancelarNota = function() {
-    bootstrap.Modal.getInstance(document.getElementById('modal-nota')).hide();
-};
-
 // ==========================================
-// LÓGICA DE PRODUCTOS (TABLA TEMPORAL)
+// LÓGICA DE PRODUCTOS
 // ==========================================
 window.agregarProductoNota = function() {
     const nombre = document.getElementById('ne-prod-nombre').value.trim();
@@ -174,15 +231,15 @@ function renderizarProductosTemp() {
         total += p.cantidad;
         tbody.innerHTML += `
             <tr>
-                <td>${index + 1}</td>
+                <td class="text-center">${index + 1}</td>
                 <td>${p.nombre}</td>
-                <td>${Number.isInteger(p.cantidad) ? p.cantidad : p.cantidad.toFixed(2)} C/U</td>
-                <td><button class="btn btn-sm btn-outline-danger" onclick="eliminarProductoTemp(${index})">X</button></td>
+                <td class="text-center">${Number.isInteger(p.cantidad) ? p.cantidad.toFixed(2) : p.cantidad.toFixed(2)} C/U</td>
+                <td class="text-center"><button class="btn btn-sm btn-outline-danger" onclick="eliminarProductoTemp(${index})">X</button></td>
             </tr>
         `;
     });
 
-    document.getElementById('lbl-ne-total').textContent = Number.isInteger(total) ? total : total.toFixed(2);
+    document.getElementById('lbl-ne-total').textContent = Number.isInteger(total) ? total.toFixed(2) : total.toFixed(2);
 }
 
 window.eliminarProductoTemp = function(index) {
@@ -196,10 +253,11 @@ window.eliminarProductoTemp = function(index) {
 window.guardarNota = async function() {
     const numeroNota = document.getElementById('ne-numero').value.trim();
     const fecha = document.getElementById('ne-fecha').value;
-    const titulo = document.getElementById('ne-titulo').value.trim();
+    const titulo = document.getElementById('ne-titulo').value.trim() || 'NOTA DE ENTREGA';
     const clienteNombre = document.getElementById('ne-cliente-nombre').value.trim();
     const clienteDireccion = document.getElementById('ne-cliente-dir').value.trim();
     const clienteTelefono = document.getElementById('ne-cliente-tel').value.trim();
+    const referencia = document.getElementById('ne-referencia').value.trim();
     const descripcionExtra = document.getElementById('ne-descripcion-extra').value.trim();
 
     if (!numeroNota || !fecha || !clienteNombre) {
@@ -213,36 +271,40 @@ window.guardarNota = async function() {
 
     const payload = {
         userId: currentUser.uid,
-        numeroNota,
-        fecha,
-        titulo,
-        clienteNombre,
-        clienteDireccion,
-        clienteTelefono,
-        descripcionExtra,
-        productos: productosTemp,
-        total,
+        numeroNota, fecha, titulo,
+        clienteNombre, clienteDireccion, clienteTelefono,
+        referencia, descripcionExtra,
+        productos: productosTemp, total,
         fechaActualizacion: new Date().toISOString()
     };
 
     try {
+        let newId = notaEditandoId;
         if (notaEditandoId) {
             await updateDoc(doc(db, "notas_entrega", notaEditandoId), payload);
-            showAlert('Éxito', 'Nota de entrega actualizada.', 'success');
+            showAlert('Éxito', 'Nota actualizada.', 'success');
         } else {
             payload.fechaCreacion = new Date().toISOString();
-            await addDoc(collection(db, "notas_entrega"), payload);
-            showAlert('Éxito', 'Nota de entrega creada.', 'success');
+            const docRef = await addDoc(collection(db, "notas_entrega"), payload);
+            newId = docRef.id;
+            showAlert('Éxito', 'Nota creada. Generando PDF...', 'success');
         }
-        cancelarNota();
+        
+        bootstrap.Modal.getInstance(document.getElementById('modal-nota')).hide();
         await cargarNotas();
+        
+        // Si se acaba de crear, descargamos el PDF automáticamente
+        if (!notaEditandoId) {
+            setTimeout(() => descargarPDF(newId), 500); 
+        }
+        
     } catch (e) {
         showAlert('Error', e.message, 'danger');
     }
 };
 
 window.eliminarNota = async function(id) {
-    if (await showConfirm('¿Estás seguro de eliminar esta Nota de Entrega? Esta acción no se puede deshacer.')) {
+    if (await showConfirm('¿Estás seguro de eliminar esta Nota de Entrega?')) {
         try {
             await deleteDoc(doc(db, "notas_entrega", id));
             showAlert('Eliminado', 'La nota ha sido borrada.', 'success');
@@ -254,54 +316,53 @@ window.eliminarNota = async function(id) {
 };
 
 // ==========================================
-// GENERAR PDF CON FORMATO ESPECÍFICO
+// GENERAR PDF CON FORMATO EXACTO (LOGO Y COLORES)
 // ==========================================
 window.descargarPDF = async function(id) {
     const nota = notasCache.find(n => n.id === id);
     if (!nota) return;
 
-    // 1. Llenar los datos en el contenedor oculto
-    const clienteInfo = `${nota.clienteNombre} ${nota.clienteDireccion || ''} ${nota.clienteTelefono || ''}`;
-    document.getElementById('pdf-cliente-info').textContent = clienteInfo.trim();
+    // 1. Llenar datos en el contenedor oculto
+    document.getElementById('pdf-cliente-nombre').textContent = nota.clienteNombre;
+    document.getElementById('pdf-cliente-dir').textContent = nota.clienteDireccion || 'N/A';
+    document.getElementById('pdf-cliente-tel').textContent = nota.clienteTelefono || 'N/A';
+    
     document.getElementById('pdf-numero').textContent = nota.numeroNota;
     
     // Formatear fecha a DD-MM-YYYY
     const [year, month, day] = nota.fecha.split('-');
     document.getElementById('pdf-fecha').textContent = `${day}-${month}-${year}`;
     
-    document.getElementById('pdf-titulo').textContent = nota.titulo ? nota.titulo.toUpperCase() : '';
-    
+    document.getElementById('pdf-referencia').textContent = nota.referencia || 'N/A';
+    document.getElementById('pdf-titulo').textContent = nota.titulo.toUpperCase();
     document.getElementById('pdf-descripcion').textContent = nota.descripcionExtra || '';
 
-    // 2. Llenar tabla de productos
+    // 2. Llenar tabla
     const tbody = document.querySelector('#pdf-tabla-productos tbody');
     tbody.innerHTML = '';
     nota.productos.forEach((p, index) => {
         const cantStr = Number.isInteger(p.cantidad) ? p.cantidad.toFixed(2) : p.cantidad.toFixed(2);
         tbody.innerHTML += `
             <tr>
-                <td>${index + 1}</td>
+                <td class="col-num">${index + 1}</td>
                 <td>${p.nombre}</td>
-                <td>${cantStr} C/U</td>
+                <td class="col-cant">${cantStr} C/U</td>
             </tr>
         `;
     });
     
-    // Total
-    const totalStr = Number.isInteger(nota.total) ? nota.total.toFixed(2) : nota.total.toFixed(2);
-    document.getElementById('pdf-total').textContent = totalStr;
+    document.getElementById('pdf-total').textContent = nota.total.toFixed(2);
 
-    // 3. Configurar html2pdf
+    // 3. Generar PDF
     const elemento = document.getElementById('pdf-container');
     const opciones = {
-        margin:       15, // Margen en mm
+        margin:       0, // Márgenes controlados por el padding del CSS
         filename:     `Nota_Entrega_${nota.numeroNota}_${nota.clienteNombre.replace(/\s+/g, '_')}.pdf`,
         image:        { type: 'jpeg', quality: 0.98 },
         html2canvas:  { scale: 2, useCORS: true },
         jsPDF:        { unit: 'mm', format: 'letter', orientation: 'portrait' }
     };
 
-    // 4. Mostrar temporalmente, generar, y volver a ocultar
     elemento.style.display = 'block';
     
     try {
@@ -309,6 +370,6 @@ window.descargarPDF = async function(id) {
     } catch (error) {
         showAlert('Error', 'No se pudo generar el PDF: ' + error.message, 'danger');
     } finally {
-        elemento.style.display = 'none'; // Ocultar de nuevo
+        elemento.style.display = 'none';
     }
 };
