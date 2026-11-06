@@ -11,7 +11,7 @@ let txPagosTemp = [];
 let txDtesTemp = []; 
 let transaccionEditandoId = null; 
 
-// UTILIDAD: Obtener solo YYYY-MM-DD para el input
+// UTILIDAD: Formatear fecha para el input date (YYYY-MM-DD)
 function getFormattedDate(date) {
     const pad = (num) => String(num).padStart(2, '0');
     const yyyy = date.getFullYear();
@@ -134,11 +134,9 @@ window.filtrarMovimientos = function() {
     acordeon.innerHTML = '';
     filtrados.forEach((tx, index) => {
         const fechaObj = new Date(tx.fecha);
-        // Formato visual: DD/MM/YYYY (sin hora)
         const fechaStr = fechaObj.toLocaleDateString(); 
         const collapseId = `collapse-tx-${index}`;
 
-        // Generar tabla de productos
         let filasHTML = '';
         let sumaTotal = 0;
         if (tx.items) {
@@ -151,27 +149,9 @@ window.filtrarMovimientos = function() {
         }
         const totalMostrar = tx.total || sumaTotal;
 
-        // Generar lista de DTEs
-        let dtesInfoHTML = '';
-        if (tx.dtes && tx.dtes.length > 0) {
-            dtesInfoHTML = `<ul class="list-group list-group-flush mb-2">`;
-            tx.dtes.forEach(d => {
-                dtesInfoHTML += `<li class="list-group-item py-1 px-0 border-0 small"><b>Código:</b> ${d.codigo || '-'} | <b>Número:</b> ${d.numero || '-'}</li>`;
-            });
-            dtesInfoHTML += `</ul>`;
-        }
-
-        // Generar lista de pagos
-        let pagosHTML = '';
-        if (tx.pagos && tx.pagos.length > 0) {
-            pagosHTML = `<ul class="list-group list-group-flush mb-2">`;
-            tx.pagos.forEach(p => {
-                pagosHTML += `<li class="list-group-item py-1 px-0 border-0 small"><b>${p.metodo}:</b> $${p.monto.toFixed(2)} ${p.fechaAbono ? `(Abonado: ${p.fechaAbono})` : ''}</li>`;
-            });
-            pagosHTML += `</ul>`;
-        } else {
-            pagosHTML = '<span class="text-muted small">No registrados</span>';
-        }
+        let pagosHTML = tx.pagos && tx.pagos.length > 0 
+            ? tx.pagos.map(p => `<span class="badge bg-info text-dark me-1">${p.metodo}: $${p.monto.toFixed(2)}</span>`).join('')
+            : '<span class="text-muted small">No registrados</span>';
 
         let estadoBadge = '';
         if (tx.estadoEntrega === 'Pendiente de retiro') estadoBadge = '<span class="badge bg-warning text-dark me-1">Pendiente de Retiro</span>';
@@ -181,7 +161,7 @@ window.filtrarMovimientos = function() {
         let produccionBadge = tx.enProduccion ? `<span class="badge bg-danger me-1">EN PRODUCCIÓN</span>` : '';
 
         const btnProduccion = tx.isNew ? `
-            <button onclick="toggleProduccionRapido('${tx.id}', ${!!tx.enProduccion})" class="btn btn-sm ${tx.enProduccion ? 'btn-outline-danger' : 'btn-outline-secondary'} me-2">
+            <button onclick="toggleProduccionRapido('${tx.id}', ${!!tx.enProduccion})" class="btn btn-sm ${tx.enProduccion ? 'btn-outline-danger' : 'btn-outline-secondary'} me-2" title="Cambiar estado de producción">
                 ${tx.enProduccion ? 'Quitar Producción' : 'Marcar Producción'}
             </button>
         ` : '';
@@ -193,16 +173,16 @@ window.filtrarMovimientos = function() {
             dtesHeader = '<span class="text-muted small">Sin DTE</span>';
         }
 
-        // BOTONES SOLO CON ICONOS
+        // BOTONES DE ACCIÓN (AQUÍ SE AGREGA EL BOTÓN DE NOTA)
         const botonesAccion = `
             <div class="mt-2 text-end border-top pt-2">
                 ${btnProduccion}
+                <button onclick="irANotaEntrega('${tx.id}')" class="btn btn-sm btn-info text-white me-2" title="Generar Nota de Entrega">📝 Nota</button>
                 <button onclick="editarTransaccion('${tx.id}')" class="btn btn-sm btn-outline-primary me-2" title="Editar / Completar">✏️</button>
                 <button onclick="eliminarTransaccion('${tx.id}')" class="btn btn-sm btn-outline-danger" title="Eliminar">🗑️</button>
             </div>
         `;
 
-        // INFORMACIÓN COMPLETA DENTRO DEL ACORDEÓN
         acordeon.innerHTML += `
             <div class="accordion-item">
                 <h2 class="accordion-header" id="heading-${index}">
@@ -223,14 +203,14 @@ window.filtrarMovimientos = function() {
                         <div class="row m-0 border-bottom bg-light">
                             <div class="col-md-6 p-3 border-end">
                                 <h6 class="text-primary fw-bold mb-2">Documentos (DTE)</h6>
-                                ${dtesInfoHTML}
-                                
-                                <h6 class="text-primary fw-bold mb-2 mt-3">Pagos</h6>
-                                ${pagosHTML}
+                                <ul class="list-group list-group-flush mb-2">
+                                    ${tx.dtes && tx.dtes.length > 0 ? tx.dtes.map(d => `<li class="list-group-item py-1 px-0 border-0 small"><b>Código:</b> ${d.codigo || '-'} | <b>Número:</b> ${d.numero || '-'}</li>`).join('') : '<li class="list-group-item py-1 px-0 border-0 small text-muted">No hay DTEs registrados</li>'}
+                                </ul>
                             </div>
                             <div class="col-md-6 p-3">
-                                <h6 class="text-primary fw-bold mb-2">Detalles Adicionales</h6>
+                                <h6 class="text-primary fw-bold mb-2">Pagos y Detalles</h6>
                                 <ul class="list-group list-group-flush mb-2">
+                                    <li class="list-group-item py-1 px-0 border-0 small"><b>Pagos:</b> ${pagosHTML}</li>
                                     <li class="list-group-item py-1 px-0 border-0 small"><b>Envío cobrado:</b> $${(tx.montoEnvio || 0).toFixed(2)}</li>
                                     <li class="list-group-item py-1 px-0 border-0 small"><b>Estado:</b> ${tx.estadoEntrega || 'N/A'}</li>
                                     ${tx.fechaEntrega ? `<li class="list-group-item py-1 px-0 border-0 small"><b>Fecha Entrega:</b> ${tx.fechaEntrega}</li>` : ''}
@@ -269,7 +249,14 @@ window.toggleProduccionRapido = async function(id, estadoActual) {
 };
 
 // ==========================================
-// MODAL: CREAR / EDITAR
+// REDIRECCIÓN A NOTA DE ENTREGA
+// ==========================================
+window.irANotaEntrega = function(txId) {
+    window.location.href = `notas_entrega.html?txId=${txId}`;
+};
+
+// ==========================================
+// MODAL: CREAR / EDITAR TRANSACCIÓN
 // ==========================================
 window.abrirModalTransaccion = function() {
     transaccionEditandoId = null;
@@ -291,7 +278,6 @@ window.abrirModalTransaccion = function() {
     document.getElementById('tx-tipo').value = 'salida';
     document.getElementById('tx-check-produccion').checked = false;
     
-    // Fecha actual
     document.getElementById('tx-fecha-creacion').value = getFormattedDate(new Date());
 
     document.getElementById('temp-dte-codigo').value = '';
@@ -331,7 +317,6 @@ window.editarTransaccion = function(id) {
     document.getElementById('tx-comentario').value = tx.comentario || '';
     document.getElementById('tx-check-produccion').checked = tx.enProduccion || false;
     
-    // Cargar la fecha
     const fechaTx = tx.fecha ? new Date(tx.fecha) : new Date();
     document.getElementById('tx-fecha-creacion').value = getFormattedDate(fechaTx);
 
@@ -515,7 +500,6 @@ window.guardarTransaccion = async function() {
         return showAlert('Aviso', `Pagos ($${totalPagado.toFixed(2)}) no coinciden con Total ($${total.toFixed(2)}).`, 'warning');
     }
 
-    // Obtener la fecha seleccionada y fijarla al mediodía (12:00:00) para evitar desfases de zona horaria
     const fechaInput = document.getElementById('tx-fecha-creacion').value;
     const fechaFinal = fechaInput ? `${fechaInput}T12:00:00.000Z` : new Date().toISOString();
 
