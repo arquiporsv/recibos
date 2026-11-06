@@ -1,12 +1,11 @@
 import { auth } from './firebase.js';
 import { onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-// 1. AQUÍ CENTRALIZAMOS LOS MÓDULOS DE TU SISTEMA
-// Cada vez que crees uno nuevo, solo agrégalo a esta lista.
 const modulos = [
     { nombre: 'Inventario', icono: '📦', url: 'inventario.html' },
     { nombre: 'Movimientos', icono: '📊', url: 'movimientos.html' },
-    { nombre: 'Kardex', icono: '📋', url: 'kardex.html' }
+    { nombre: 'Kardex', icono: '📋', url: 'kardex.html' },
+    { nombre: 'Notas de Entrega', icono: '📝', url: 'notas_entrega.html' } 
 ];
 
 function renderizarSidebar() {
