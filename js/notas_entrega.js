@@ -1,0 +1,314 @@
+import { db, auth, checkAuth, showAlert, showConfirm } from './firebase.js';
+import { collection, getDocs, query, where, addDoc, doc, updateDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+let currentUser = null;
+let notasCache = [];
+let productosTemp = [];
+let notaEditandoId = null;
+
+checkAuth(async (user) => {
+    currentUser = user;
+    await cargarNotas();
+});
+
+// ==========================================
+// CARGA Y RENDERIZADO
+// ==========================================
+async function cargarNotas() {
+    const acordeon = document.getElementById('acordeon-notas');
+    acordeon.innerHTML = '<div class="text-center p-3">Cargando notas...</div>';
+
+    try {
+        const q = query(collection(db, "notas_entrega"), where("userId", "==", currentUser.uid));
+        const snap = await getDocs(q);
+        
+        notasCache = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        // Ordenar por fecha descendente (la más reciente primero)
+        notasCache.sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
+
+        filtrarNotas();
+    } catch (error) {
+        acordeon.innerHTML = `<div class="text-center text-danger p-3">Error: ${error.message}</div>`;
+    }
+}
+
+window.filtrarNotas = function() {
+    const acordeon = document.getElementById('acordeon-notas');
+    const buscador = document.getElementById('ne-buscador').value.toLowerCase().trim();
+
+    const filtradas = notasCache.filter(n => 
+        n.clienteNombre.toLowerCase().includes(buscador) || 
+        n.numeroNota.toLowerCase().includes(buscador)
+    );
+
+    if (filtradas.length === 0) {
+        acordeon.innerHTML = '<div class="text-center text-muted p-4">No se encontraron notas de entrega.</div>';
+        return;
+    }
+
+    acordeon.innerHTML = '';
+    filtradas.forEach((nota, index) => {
+        const fechaStr = new Date(nota.fecha).toLocaleDateString();
+        const collapseId = `collapse-ne-${index}`;
+
+        let filasHTML = '';
+        nota.productos.forEach((p, i) => {
+            filasHTML += `<tr><td>${i+1}</td><td>${p.nombre}</td><td>${Number.isInteger(p.cantidad) ? p.cantidad : p.cantidad.toFixed(2)} C/U</td></tr>`;
+        });
+
+        acordeon.innerHTML += `
+            <div class="accordion-item">
+                <h2 class="accordion-header">
+                    <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#${collapseId}">
+                        <div class="d-flex w-100 justify-content-between align-items-center pe-3">
+                            <div>
+                                <span class="badge bg-primary me-2">${nota.numeroNota}</span>
+                                <b>${nota.clienteNombre}</b>
+                            </div>
+                            <span class="text-muted small text-end">${fechaStr} <br> <b>Total: ${nota.total.toFixed(2)}</b></span>
+                        </div>
+                    </button>
+                </h2>
+                <div id="${collapseId}" class="accordion-collapse collapse">
+                    <div class="accordion-body p-0">
+                        <div class="p-3 bg-light border-bottom">
+                            <p class="mb-1"><b>Título:</b> ${nota.titulo}</p>
+                            ${nota.descripcionExtra ? `<p class="mb-0 small text-muted"><b>Nota:</b> ${nota.descripcionExtra}</p>` : ''}
+                        </div>
+                        <table class="table table-sm mb-0">
+                            <thead class="table-light"><tr><th>N°</th><th>Producto</th><th>Cantidad</th></tr></thead>
+                            <tbody>${filasHTML}</tbody>
+                        </table>
+                        <div class="text-end p-2 border-top">
+                            <button onclick="descargarPDF('${nota.id}')" class="btn btn-sm btn-success me-2" title="Descargar PDF">📄 PDF</button>
+                            <button onclick="editarNota('${nota.id}')" class="btn btn-sm btn-outline-primary me-2" title="Editar">✏️</button>
+                            <button onclick="eliminarNota('${nota.id}')" class="btn btn-sm btn-outline-danger" title="Eliminar">🗑️</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+    });
+};
+
+// ==========================================
+// MODAL CREAR / EDITAR
+// ==========================================
+window.abrirModalNota = function() {
+    notaEditandoId = null;
+    productosTemp = [];
+    
+    // Autogenerar número de nota si es nueva
+    let nextNum = 1;
+    if (notasCache.length > 0) {
+        const nums = notasCache.map(n => parseInt(n.numeroNota.replace(/\D/g, '')) || 0);
+        nextNum = Math.max(...nums) + 1;
+    }
+    
+    document.getElementById('modal-nota-titulo').textContent = 'Nueva Nota de Entrega';
+    document.getElementById('btn-guardar-nota').textContent = 'Guardar Nota';
+    document.getElementById('ne-numero').value = 'NE' + nextNum;
+    document.getElementById('ne-fecha').value = new Date().toISOString().split('T')[0];
+    document.getElementById('ne-titulo').value = '';
+    document.getElementById('ne-cliente-nombre').value = '';
+    document.getElementById('ne-cliente-dir').value = '';
+    document.getElementById('ne-cliente-tel').value = '';
+    document.getElementById('ne-descripcion-extra').value = '';
+    
+    document.getElementById('ne-prod-nombre').value = '';
+    document.getElementById('ne-prod-cant').value = '1';
+
+    renderizarProductosTemp();
+    new bootstrap.Modal(document.getElementById('modal-nota')).show();
+};
+
+window.editarNota = function(id) {
+    const nota = notasCache.find(n => n.id === id);
+    if (!nota) return;
+
+    notaEditandoId = id;
+    productosTemp = JSON.parse(JSON.stringify(nota.productos)); // Copia profunda
+
+    document.getElementById('modal-nota-titulo').textContent = 'Editar Nota de Entrega';
+    document.getElementById('btn-guardar-nota').textContent = 'Actualizar Nota';
+    
+    document.getElementById('ne-numero').value = nota.numeroNota;
+    document.getElementById('ne-fecha').value = nota.fecha;
+    document.getElementById('ne-titulo').value = nota.titulo;
+    document.getElementById('ne-cliente-nombre').value = nota.clienteNombre;
+    document.getElementById('ne-cliente-dir').value = nota.clienteDireccion || '';
+    document.getElementById('ne-cliente-tel').value = nota.clienteTelefono || '';
+    document.getElementById('ne-descripcion-extra').value = nota.descripcionExtra || '';
+
+    renderizarProductosTemp();
+    new bootstrap.Modal(document.getElementById('modal-nota')).show();
+};
+
+window.cancelarNota = function() {
+    bootstrap.Modal.getInstance(document.getElementById('modal-nota')).hide();
+};
+
+// ==========================================
+// LÓGICA DE PRODUCTOS (TABLA TEMPORAL)
+// ==========================================
+window.agregarProductoNota = function() {
+    const nombre = document.getElementById('ne-prod-nombre').value.trim();
+    const cantidad = parseFloat(document.getElementById('ne-prod-cant').value);
+
+    if (!nombre || isNaN(cantidad) || cantidad <= 0) {
+        return showAlert('Aviso', 'Ingresa un producto y una cantidad válida.', 'warning');
+    }
+
+    productosTemp.push({ nombre, cantidad });
+    document.getElementById('ne-prod-nombre').value = '';
+    document.getElementById('ne-prod-cant').value = '1';
+    renderizarProductosTemp();
+};
+
+function renderizarProductosTemp() {
+    const tbody = document.querySelector('#tabla-ne-productos tbody');
+    tbody.innerHTML = '';
+    let total = 0;
+
+    productosTemp.forEach((p, index) => {
+        total += p.cantidad;
+        tbody.innerHTML += `
+            <tr>
+                <td>${index + 1}</td>
+                <td>${p.nombre}</td>
+                <td>${Number.isInteger(p.cantidad) ? p.cantidad : p.cantidad.toFixed(2)} C/U</td>
+                <td><button class="btn btn-sm btn-outline-danger" onclick="eliminarProductoTemp(${index})">X</button></td>
+            </tr>
+        `;
+    });
+
+    document.getElementById('lbl-ne-total').textContent = Number.isInteger(total) ? total : total.toFixed(2);
+}
+
+window.eliminarProductoTemp = function(index) {
+    productosTemp.splice(index, 1);
+    renderizarProductosTemp();
+};
+
+// ==========================================
+// GUARDAR Y ELIMINAR
+// ==========================================
+window.guardarNota = async function() {
+    const numeroNota = document.getElementById('ne-numero').value.trim();
+    const fecha = document.getElementById('ne-fecha').value;
+    const titulo = document.getElementById('ne-titulo').value.trim();
+    const clienteNombre = document.getElementById('ne-cliente-nombre').value.trim();
+    const clienteDireccion = document.getElementById('ne-cliente-dir').value.trim();
+    const clienteTelefono = document.getElementById('ne-cliente-tel').value.trim();
+    const descripcionExtra = document.getElementById('ne-descripcion-extra').value.trim();
+
+    if (!numeroNota || !fecha || !clienteNombre) {
+        return showAlert('Aviso', 'N° Nota, Fecha y Nombre del Cliente son obligatorios.', 'warning');
+    }
+    if (productosTemp.length === 0) {
+        return showAlert('Aviso', 'Debes agregar al menos un producto.', 'warning');
+    }
+
+    const total = productosTemp.reduce((sum, p) => sum + p.cantidad, 0);
+
+    const payload = {
+        userId: currentUser.uid,
+        numeroNota,
+        fecha,
+        titulo,
+        clienteNombre,
+        clienteDireccion,
+        clienteTelefono,
+        descripcionExtra,
+        productos: productosTemp,
+        total,
+        fechaActualizacion: new Date().toISOString()
+    };
+
+    try {
+        if (notaEditandoId) {
+            await updateDoc(doc(db, "notas_entrega", notaEditandoId), payload);
+            showAlert('Éxito', 'Nota de entrega actualizada.', 'success');
+        } else {
+            payload.fechaCreacion = new Date().toISOString();
+            await addDoc(collection(db, "notas_entrega"), payload);
+            showAlert('Éxito', 'Nota de entrega creada.', 'success');
+        }
+        cancelarNota();
+        await cargarNotas();
+    } catch (e) {
+        showAlert('Error', e.message, 'danger');
+    }
+};
+
+window.eliminarNota = async function(id) {
+    if (await showConfirm('¿Estás seguro de eliminar esta Nota de Entrega? Esta acción no se puede deshacer.')) {
+        try {
+            await deleteDoc(doc(db, "notas_entrega", id));
+            showAlert('Eliminado', 'La nota ha sido borrada.', 'success');
+            await cargarNotas();
+        } catch (error) {
+            showAlert('Error', error.message, 'danger');
+        }
+    }
+};
+
+// ==========================================
+// GENERAR PDF CON FORMATO ESPECÍFICO
+// ==========================================
+window.descargarPDF = async function(id) {
+    const nota = notasCache.find(n => n.id === id);
+    if (!nota) return;
+
+    // 1. Llenar los datos en el contenedor oculto
+    const clienteInfo = `${nota.clienteNombre} ${nota.clienteDireccion || ''} ${nota.clienteTelefono || ''}`;
+    document.getElementById('pdf-cliente-info').textContent = clienteInfo.trim();
+    document.getElementById('pdf-numero').textContent = nota.numeroNota;
+    
+    // Formatear fecha a DD-MM-YYYY
+    const [year, month, day] = nota.fecha.split('-');
+    document.getElementById('pdf-fecha').textContent = `${day}-${month}-${year}`;
+    
+    document.getElementById('pdf-titulo').textContent = nota.titulo ? nota.titulo.toUpperCase() : '';
+    
+    document.getElementById('pdf-descripcion').textContent = nota.descripcionExtra || '';
+
+    // 2. Llenar tabla de productos
+    const tbody = document.querySelector('#pdf-tabla-productos tbody');
+    tbody.innerHTML = '';
+    nota.productos.forEach((p, index) => {
+        const cantStr = Number.isInteger(p.cantidad) ? p.cantidad.toFixed(2) : p.cantidad.toFixed(2);
+        tbody.innerHTML += `
+            <tr>
+                <td>${index + 1}</td>
+                <td>${p.nombre}</td>
+                <td>${cantStr} C/U</td>
+            </tr>
+        `;
+    });
+    
+    // Total
+    const totalStr = Number.isInteger(nota.total) ? nota.total.toFixed(2) : nota.total.toFixed(2);
+    document.getElementById('pdf-total').textContent = totalStr;
+
+    // 3. Configurar html2pdf
+    const elemento = document.getElementById('pdf-container');
+    const opciones = {
+        margin:       15, // Margen en mm
+        filename:     `Nota_Entrega_${nota.numeroNota}_${nota.clienteNombre.replace(/\s+/g, '_')}.pdf`,
+        image:        { type: 'jpeg', quality: 0.98 },
+        html2canvas:  { scale: 2, useCORS: true },
+        jsPDF:        { unit: 'mm', format: 'letter', orientation: 'portrait' }
+    };
+
+    // 4. Mostrar temporalmente, generar, y volver a ocultar
+    elemento.style.display = 'block';
+    
+    try {
+        await html2pdf().set(opciones).from(elemento).save();
+    } catch (error) {
+        showAlert('Error', 'No se pudo generar el PDF: ' + error.message, 'danger');
+    } finally {
+        elemento.style.display = 'none'; // Ocultar de nuevo
+    }
+};
