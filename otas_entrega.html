@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Notas de Entrega - ERP</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="css/styles.css">
+    <link rel="stylesheet" href="css/inventario.css">
+    
+    <!-- Estilos específicos para el PDF de la Nota de Entrega -->
+    <style>
+        #pdf-container {
+            display: none; /* Oculto en pantalla, visible solo para html2pdf */
+            background: white;
+            color: black;
+            font-family: 'Times New Roman', Times, serif;
+            padding: 40px;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+        .pdf-header { text-align: center; margin-bottom: 20px; }
+        .pdf-info { display: flex; justify-content: space-between; margin-bottom: 20px; font-weight: bold; }
+        .pdf-title { text-align: center; font-weight: bold; margin-bottom: 20px; text-decoration: underline; }
+        .pdf-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+        .pdf-table th, .pdf-table td { border: 1px solid black; padding: 8px; text-align: left; }
+        .pdf-table th { background-color: #f2f2f2; text-align: center; }
+        .pdf-table td:first-child, .pdf-table td:last-child { text-align: center; }
+        .pdf-footer-text { margin-bottom: 40px; text-align: justify; }
+        .pdf-signatures { display: flex; flex-direction: column; gap: 30px; margin-top: 50px; }
+        .pdf-sig-line { display: flex; align-items: flex-end; }
+        .pdf-sig-line span { font-weight: bold; margin-right: 10px; }
+        .pdf-sig-line div { flex: 1; border-bottom: 1px solid black; height: 20px; }
+    </style>
+</head>
+<body>
+    <div id="app-container">
+        <aside id="sidebar-container" class="sidebar"></aside>
+
+        <main class="main-content">
+            <header class="view-header">
+                <h2>Notas de Entrega</h2>
+                <div class="action-buttons">
+                    <button onclick="abrirModalNota()" class="btn btn-primary">+ Nueva Nota de Entrega</button>
+                </div>
+            </header>
+
+            <!-- FILTROS -->
+            <div class="card p-3 shadow-sm mb-3">
+                <div class="row align-items-end">
+                    <div class="col-md-6">
+                        <label class="form-label text-muted small mb-1">Buscar por Cliente o N° Nota</label>
+                        <input type="text" id="ne-buscador" class="form-control" placeholder="🔍 Escribe aquí..." oninput="filtrarNotas()">
+                    </div>
+                </div>
+            </div>
+
+            <!-- ACORDEÓN DE NOTAS -->
+            <div class="card p-3 shadow-sm">
+                <div class="accordion" id="acordeon-notas"></div>
+            </div>
+        </main>
+    </div>
+
+    <!-- MODAL CREAR/EDITAR NOTA -->
+    <div class="modal fade" id="modal-nota" tabindex="-1" aria-hidden="true" data-bs-backdrop="static">
+        <div class="modal-dialog modal-xl">
+            <div class="modal-content">
+                <div class="modal-header bg-primary text-white">
+                    <h5 class="modal-title" id="modal-nota-titulo">Nueva Nota de Entrega</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" onclick="cancelarNota()"></button>
+                </div>
+                <div class="modal-body">
+                    <!-- CABECERA -->
+                    <div class="row bg-light p-3 rounded mb-3">
+                        <div class="col-md-3">
+                            <label class="small fw-bold">N° Nota:</label>
+                            <input type="text" id="ne-numero" class="form-control form-control-sm" placeholder="Ej. NE6">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="small fw-bold">Fecha:</label>
+                            <input type="date" id="ne-fecha" class="form-control form-control-sm">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="small fw-bold">Título / Motivo:</label>
+                            <input type="text" id="ne-titulo" class="form-control form-control-sm" placeholder="Ej. CAMBIO DE PRODUCTO">
+                        </div>
+                    </div>
+
+                    <!-- DATOS CLIENTE -->
+                    <h6 class="text-primary border-bottom pb-2">Datos del Cliente</h6>
+                    <div class="row mb-3">
+                        <div class="col-md-4">
+                            <label class="small">Nombre:</label>
+                            <input type="text" id="ne-cliente-nombre" class="form-control form-control-sm" placeholder="Nombre del cliente">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="small">Dirección:</label>
+                            <input type="text" id="ne-cliente-dir" class="form-control form-control-sm" placeholder="Dirección">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="small">Teléfono:</label>
+                            <input type="text" id="ne-cliente-tel" class="form-control form-control-sm" placeholder="Teléfono">
+                        </div>
+                    </div>
+
+                    <!-- PRODUCTOS -->
+                    <h6 class="text-primary border-bottom pb-2 mt-4">Productos</h6>
+                    <div class="row align-items-end mb-2 bg-light p-2 rounded">
+                        <div class="col-md-8">
+                            <label class="small">Producto:</label>
+                            <input type="text" id="ne-prod-nombre" class="form-control form-control-sm" placeholder="Descripción del producto">
+                        </div>
+                        <div class="col-md-2">
+                            <label class="small">Cantidad:</label>
+                            <input type="number" id="ne-prod-cant" class="form-control form-control-sm" value="1" step="0.01" min="0.01">
+                        </div>
+                        <div class="col-md-2">
+                            <button onclick="agregarProductoNota()" class="btn btn-sm btn-outline-primary w-100">+ Agregar</button>
+                        </div>
+                    </div>
+
+                    <table class="table table-sm table-bordered" id="tabla-ne-productos">
+                        <thead class="table-light">
+                            <tr><th>N°</th><th>Producto</th><th>Cantidad</th><th>Acción</th></tr>
+                        </thead>
+                        <tbody></tbody>
+                        <tfoot>
+                            <tr class="table-warning">
+                                <td colspan="2" class="fw-bold text-end">Total:</td>
+                                <td class="fw-bold" id="lbl-ne-total">0.00</td>
+                                <td></td>
+                            </tr>
+                        </tfoot>
+                    </table>
+
+                    <!-- DESCRIPCIÓN EXTRA -->
+                    <div class="mt-3">
+                        <label class="small fw-bold">Texto Adicional (Pie de página):</label>
+                        <textarea id="ne-descripcion-extra" class="form-control form-control-sm" rows="3" placeholder="Ej. Se recibe de parte del cliente..."></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" onclick="cancelarNota()">Cancelar</button>
+                    <button onclick="guardarNota()" class="btn btn-primary" id="btn-guardar-nota">Guardar Nota</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="modal-confirmacion" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header"><h5 class="modal-title">Confirmación</h5></div>
+                <div class="modal-body" id="confirmacion-mensaje"></div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="button" class="btn btn-danger" id="btn-confirmar-accion">Sí, continuar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- CONTENEDOR OCULTO PARA GENERAR EL PDF -->
+    <div id="pdf-container">
+        <div class="pdf-header">
+            <h4 style="margin:0;">NOTA DE ENTREGA</h4>
+        </div>
+        
+        <div class="pdf-info">
+            <div id="pdf-cliente-info"></div>
+            <div>
+                <div>Nota de entrega No. : <span id="pdf-numero"></span></div>
+                <div>Fecha de nota de entrega : <span id="pdf-fecha"></span></div>
+            </div>
+        </div>
+
+        <div class="pdf-title" id="pdf-titulo"></div>
+
+        <table class="pdf-table" id="pdf-tabla-productos">
+            <thead>
+                <tr>
+                    <th style="width: 10%;">N°</th>
+                    <th style="width: 70%;">Producto</th>
+                    <th style="width: 20%;">Cantidad</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+            <tfoot>
+                <tr>
+                    <td colspan="2" style="text-align: right; font-weight: bold;">Total</td>
+                    <td id="pdf-total" style="font-weight: bold;"></td>
+                </tr>
+            </tfoot>
+        </table>
+
+        <div class="pdf-footer-text" id="pdf-descripcion"></div>
+
+        <div class="pdf-signatures">
+            <div class="pdf-sig-line">
+                <span>NOMBRE:</span>
+                <div></div>
+            </div>
+            <div class="pdf-sig-line">
+                <span>FIRMA:</span>
+                <div></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <script type="module" src="js/layout.js"></script>
+    <script type="module" src="js/notas_entrega.js"></script>
+</body>
+</html>
