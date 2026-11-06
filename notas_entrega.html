@@ -8,29 +8,76 @@
     <link rel="stylesheet" href="css/styles.css">
     <link rel="stylesheet" href="css/inventario.css">
     
-    <!-- Estilos específicos para el PDF de la Nota de Entrega -->
+    <!-- ESTILOS EXACTOS PARA EL PDF (Igual al formato que enviaste) -->
     <style>
         #pdf-container {
-            display: none; /* Oculto en pantalla, visible solo para html2pdf */
+            display: none; 
             background: white;
-            color: black;
-            font-family: 'Times New Roman', Times, serif;
+            color: #333;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; /* O la que uses en tu PDF */
             padding: 40px;
-            font-size: 14px;
+            font-size: 13px;
             line-height: 1.5;
+            width: 215mm; /* Ancho Carta */
+            min-height: 279mm;
+            box-sizing: border-box;
         }
-        .pdf-header { text-align: center; margin-bottom: 20px; }
-        .pdf-info { display: flex; justify-content: space-between; margin-bottom: 20px; font-weight: bold; }
-        .pdf-title { text-align: center; font-weight: bold; margin-bottom: 20px; text-decoration: underline; }
+        
+        /* Cabecera del PDF */
+        .pdf-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 3px solid #2c3e50;
+            padding-bottom: 10px;
+            margin-bottom: 20px;
+        }
+        .pdf-header img { height: 70px; }
+        .pdf-header h2 { color: #2c3e50; margin: 0; font-size: 24px; font-weight: bold; }
+
+        /* Info del Cliente y Nota */
+        .pdf-info-container {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 20px;
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            border-left: 4px solid #3498db;
+        }
+        .pdf-info-block { width: 48%; }
+        .pdf-info-block div { margin-bottom: 5px; }
+        .pdf-label { font-weight: bold; color: #555; }
+
+        /* Título central */
+        .pdf-title {
+            text-align: center;
+            font-weight: bold;
+            background: #2c3e50;
+            color: white;
+            padding: 8px;
+            margin-bottom: 20px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        /* Tabla */
         .pdf-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
-        .pdf-table th, .pdf-table td { border: 1px solid black; padding: 8px; text-align: left; }
-        .pdf-table th { background-color: #f2f2f2; text-align: center; }
-        .pdf-table td:first-child, .pdf-table td:last-child { text-align: center; }
-        .pdf-footer-text { margin-bottom: 40px; text-align: justify; }
-        .pdf-signatures { display: flex; flex-direction: column; gap: 30px; margin-top: 50px; }
-        .pdf-sig-line { display: flex; align-items: flex-end; }
-        .pdf-sig-line span { font-weight: bold; margin-right: 10px; }
-        .pdf-sig-line div { flex: 1; border-bottom: 1px solid black; height: 20px; }
+        .pdf-table th { background: #3498db; color: white; padding: 10px; text-align: left; border: 1px solid #2980b9; }
+        .pdf-table td { padding: 8px 10px; border: 1px solid #ddd; }
+        .pdf-table tr:nth-child(even) { background-color: #f2f2f2; }
+        .pdf-table .col-num { text-align: center; width: 10%; }
+        .pdf-table .col-cant { text-align: center; width: 20%; }
+        .pdf-total-row { background: #ecf0f1; font-weight: bold; text-align: right; }
+
+        /* Descripción extra */
+        .pdf-footer-text { margin-bottom: 40px; text-align: justify; font-style: italic; color: #555; }
+
+        /* Firmas */
+        .pdf-signatures { display: flex; justify-content: space-around; margin-top: 60px; }
+        .pdf-sig-block { text-align: center; width: 40%; }
+        .pdf-sig-line { border-top: 1px solid black; margin-top: 40px; margin-bottom: 5px; }
+        .pdf-sig-label { font-weight: bold; font-size: 12px; }
     </style>
 </head>
 <body>
@@ -41,7 +88,7 @@
             <header class="view-header">
                 <h2>Notas de Entrega</h2>
                 <div class="action-buttons">
-                    <button onclick="abrirModalNota()" class="btn btn-primary">+ Nueva Nota de Entrega</button>
+                    <button onclick="abrirModalNota()" class="btn btn-primary">+ Nueva Nota Manual</button>
                 </div>
             </header>
 
@@ -64,26 +111,26 @@
 
     <!-- MODAL CREAR/EDITAR NOTA -->
     <div class="modal fade" id="modal-nota" tabindex="-1" aria-hidden="true" data-bs-backdrop="static">
-        <div class="modal-dialog modal-xl">
+        <div class="modal-dialog modal-lg">
             <div class="modal-content">
                 <div class="modal-header bg-primary text-white">
                     <h5 class="modal-title" id="modal-nota-titulo">Nueva Nota de Entrega</h5>
-                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" onclick="cancelarNota()"></button>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
                     <!-- CABECERA -->
                     <div class="row bg-light p-3 rounded mb-3">
-                        <div class="col-md-3">
+                        <div class="col-md-4">
                             <label class="small fw-bold">N° Nota:</label>
                             <input type="text" id="ne-numero" class="form-control form-control-sm" placeholder="Ej. NE6">
                         </div>
-                        <div class="col-md-3">
+                        <div class="col-md-4">
                             <label class="small fw-bold">Fecha:</label>
                             <input type="date" id="ne-fecha" class="form-control form-control-sm">
                         </div>
-                        <div class="col-md-6">
-                            <label class="small fw-bold">Título / Motivo:</label>
-                            <input type="text" id="ne-titulo" class="form-control form-control-sm" placeholder="Ej. CAMBIO DE PRODUCTO">
+                        <div class="col-md-4">
+                            <label class="small fw-bold">Referencia (Factura/DTE):</label>
+                            <input type="text" id="ne-referencia" class="form-control form-control-sm" placeholder="Fact. / Código Generación">
                         </div>
                     </div>
 
@@ -92,16 +139,22 @@
                     <div class="row mb-3">
                         <div class="col-md-4">
                             <label class="small">Nombre:</label>
-                            <input type="text" id="ne-cliente-nombre" class="form-control form-control-sm" placeholder="Nombre del cliente">
+                            <input type="text" id="ne-cliente-nombre" class="form-control form-control-sm">
                         </div>
                         <div class="col-md-4">
                             <label class="small">Dirección:</label>
-                            <input type="text" id="ne-cliente-dir" class="form-control form-control-sm" placeholder="Dirección">
+                            <input type="text" id="ne-cliente-dir" class="form-control form-control-sm">
                         </div>
                         <div class="col-md-4">
                             <label class="small">Teléfono:</label>
-                            <input type="text" id="ne-cliente-tel" class="form-control form-control-sm" placeholder="Teléfono">
+                            <input type="text" id="ne-cliente-tel" class="form-control form-control-sm">
                         </div>
+                    </div>
+
+                    <!-- MOTIVO -->
+                    <div class="mb-3">
+                        <label class="small fw-bold">Motivo / Título de la Nota:</label>
+                        <input type="text" id="ne-titulo" class="form-control form-control-sm" placeholder="Ej. CAMBIO DE PRODUCTO">
                     </div>
 
                     <!-- PRODUCTOS -->
@@ -136,12 +189,12 @@
 
                     <!-- DESCRIPCIÓN EXTRA -->
                     <div class="mt-3">
-                        <label class="small fw-bold">Texto Adicional (Pie de página):</label>
-                        <textarea id="ne-descripcion-extra" class="form-control form-control-sm" rows="3" placeholder="Ej. Se recibe de parte del cliente..."></textarea>
+                        <label class="small fw-bold">Texto Adicional / Observaciones:</label>
+                        <textarea id="ne-descripcion-extra" class="form-control form-control-sm" rows="2" placeholder="Ej. Se recibe de parte del cliente..."></textarea>
                     </div>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" onclick="cancelarNota()">Cancelar</button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
                     <button onclick="guardarNota()" class="btn btn-primary" id="btn-guardar-nota">Guardar Nota</button>
                 </div>
             </div>
@@ -161,49 +214,63 @@
         </div>
     </div>
 
-    <!-- CONTENEDOR OCULTO PARA GENERAR EL PDF -->
+    <!-- ========================================== -->
+    <!-- CONTENEDOR OCULTO PARA GENERAR EL PDF      -->
+    <!-- ========================================== -->
     <div id="pdf-container">
+        <!-- Cabecera con Logo -->
         <div class="pdf-header">
-            <h4 style="margin:0;">NOTA DE ENTREGA</h4>
+            <img src="https://i.postimg.cc/kg34hr8S/image-removebg-preview.png" alt="Logo">
+            <h2>NOTA DE ENTREGA</h2>
         </div>
         
-        <div class="pdf-info">
-            <div id="pdf-cliente-info"></div>
-            <div>
-                <div>Nota de entrega No. : <span id="pdf-numero"></span></div>
-                <div>Fecha de nota de entrega : <span id="pdf-fecha"></span></div>
+        <!-- Info Cliente y Nota -->
+        <div class="pdf-info-container">
+            <div class="pdf-info-block">
+                <div><span class="pdf-label">Cliente:</span> <span id="pdf-cliente-nombre"></span></div>
+                <div><span class="pdf-label">Dirección:</span> <span id="pdf-cliente-dir"></span></div>
+                <div><span class="pdf-label">Teléfono:</span> <span id="pdf-cliente-tel"></span></div>
+            </div>
+            <div class="pdf-info-block" style="text-align: right;">
+                <div><span class="pdf-label">Nota de entrega No.:</span> <span id="pdf-numero"></span></div>
+                <div><span class="pdf-label">Fecha:</span> <span id="pdf-fecha"></span></div>
+                <div><span class="pdf-label">Ref. Factura/DTE:</span> <span id="pdf-referencia"></span></div>
             </div>
         </div>
 
+        <!-- Título (Ej. CAMBIO DE PRODUCTO) -->
         <div class="pdf-title" id="pdf-titulo"></div>
 
+        <!-- Tabla de Productos -->
         <table class="pdf-table" id="pdf-tabla-productos">
             <thead>
                 <tr>
-                    <th style="width: 10%;">N°</th>
-                    <th style="width: 70%;">Producto</th>
-                    <th style="width: 20%;">Cantidad</th>
+                    <th class="col-num">N°</th>
+                    <th>Producto</th>
+                    <th class="col-cant">Cantidad</th>
                 </tr>
             </thead>
             <tbody></tbody>
             <tfoot>
                 <tr>
-                    <td colspan="2" style="text-align: right; font-weight: bold;">Total</td>
-                    <td id="pdf-total" style="font-weight: bold;"></td>
+                    <td colspan="2" class="pdf-total-row" style="text-align: right; font-weight: bold;">Total</td>
+                    <td id="pdf-total" style="text-align: center; font-weight: bold;"></td>
                 </tr>
             </tfoot>
         </table>
 
+        <!-- Texto extra -->
         <div class="pdf-footer-text" id="pdf-descripcion"></div>
 
+        <!-- Firmas -->
         <div class="pdf-signatures">
-            <div class="pdf-sig-line">
-                <span>NOMBRE:</span>
-                <div></div>
+            <div class="pdf-sig-block">
+                <div class="pdf-sig-line"></div>
+                <div class="pdf-sig-label">NOMBRE</div>
             </div>
-            <div class="pdf-sig-line">
-                <span>FIRMA:</span>
-                <div></div>
+            <div class="pdf-sig-block">
+                <div class="pdf-sig-line"></div>
+                <div class="pdf-sig-label">FIRMA</div>
             </div>
         </div>
     </div>
