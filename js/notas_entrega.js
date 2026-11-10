@@ -90,7 +90,7 @@ window.filtrarNotas = function() {
                             <tbody>${filasHTML}</tbody>
                         </table>
                         <div class="text-end p-2 border-top">
-                            <button onclick="descargarPDF('${nota.id}')" class="btn btn-sm btn-success me-2" title="Descargar PDF">📄 PDF</button>
+                            <button onclick="descargarPDF('${nota.id}')" class="btn btn-sm btn-success me-2" title="Imprimir / Ver PDF">🖨️ PDF</button>
                             <button onclick="editarNota('${nota.id}')" class="btn btn-sm btn-outline-primary me-2" title="Editar">✏️</button>
                             <button onclick="eliminarNota('${nota.id}')" class="btn btn-sm btn-outline-danger" title="Eliminar">🗑️</button>
                         </div>
@@ -114,24 +114,21 @@ async function prepararNotaDesdeMovimiento(txId) {
         notaEditandoId = null;
         productosTemp = tx.items.map(i => ({ nombre: i.nombre + ' - ' + i.medida, cantidad: i.cantidad }));
         
-        // Autogenerar número
         let nextNum = 1;
         if (notasCache.length > 0) {
             const nums = notasCache.map(n => parseInt(n.numeroNota.replace(/\D/g, '')) || 0);
             nextNum = Math.max(...nums) + 1;
         }
         
-        // Llenar el modal
         document.getElementById('modal-nota-titulo').textContent = 'Generar Nota desde Movimiento';
         document.getElementById('btn-guardar-nota').textContent = 'Guardar y Generar PDF';
         document.getElementById('ne-numero').value = 'NE' + nextNum;
         document.getElementById('ne-fecha').value = new Date().toISOString().split('T')[0];
-        document.getElementById('ne-titulo').value = 'NOTA DE ENTREGA'; // Puedes cambiarlo a "CAMBIO DE PRODUCTO" si lo deseas por defecto
-        document.getElementById('ne-cliente-nombre').value = 'Cliente'; // Si guardaste el nombre del cliente en la transacción, ponlo aquí
+        document.getElementById('ne-titulo').value = 'NOTA DE ENTREGA'; 
+        document.getElementById('ne-cliente-nombre').value = 'Cliente'; 
         document.getElementById('ne-cliente-dir').value = '';
         document.getElementById('ne-cliente-tel').value = '';
         
-        // Extraer DTE si existe
         let refFactura = '';
         if (tx.dtes && tx.dtes.length > 0) {
             refFactura = tx.dtes[0].numero + ' / ' + tx.dtes[0].codigo;
@@ -287,13 +284,13 @@ window.guardarNota = async function() {
             payload.fechaCreacion = new Date().toISOString();
             const docRef = await addDoc(collection(db, "notas_entrega"), payload);
             newId = docRef.id;
-            showAlert('Éxito', 'Nota creada. Generando PDF...', 'success');
+            showAlert('Éxito', 'Nota creada. Abriendo PDF...', 'success');
         }
         
         bootstrap.Modal.getInstance(document.getElementById('modal-nota')).hide();
         await cargarNotas();
         
-        // Si se acaba de crear, descargamos el PDF automáticamente
+        // Si se acaba de crear, abrimos el PDF automáticamente
         if (!notaEditandoId) {
             setTimeout(() => descargarPDF(newId), 500); 
         }
@@ -316,7 +313,7 @@ window.eliminarNota = async function(id) {
 };
 
 // ==========================================
-// GENERAR PDF CON FORMATO EXACTO (LOGO Y COLORES)
+// GENERAR PDF Y ABRIR EN NUEVA PESTAÑA
 // ==========================================
 window.descargarPDF = async function(id) {
     const nota = notasCache.find(n => n.id === id);
@@ -326,10 +323,8 @@ window.descargarPDF = async function(id) {
     document.getElementById('pdf-cliente-nombre').textContent = nota.clienteNombre;
     document.getElementById('pdf-cliente-dir').textContent = nota.clienteDireccion || 'N/A';
     document.getElementById('pdf-cliente-tel').textContent = nota.clienteTelefono || 'N/A';
-    
     document.getElementById('pdf-numero').textContent = nota.numeroNota;
     
-    // Formatear fecha a DD-MM-YYYY
     const [year, month, day] = nota.fecha.split('-');
     document.getElementById('pdf-fecha').textContent = `${day}-${month}-${year}`;
     
@@ -353,11 +348,11 @@ window.descargarPDF = async function(id) {
     
     document.getElementById('pdf-total').textContent = nota.total.toFixed(2);
 
-    // 3. Generar PDF
+    // 3. Configurar html2pdf
     const elemento = document.getElementById('pdf-container');
     const opciones = {
-        margin:       0, // Márgenes controlados por el padding del CSS
-        filename:     `Nota_Entrega_${nota.numeroNota}_${nota.clienteNombre.replace(/\s+/g, '_')}.pdf`,
+        margin:       0, 
+        filename:     `Nota_Entrega_${nota.numeroNota}.pdf`,
         image:        { type: 'jpeg', quality: 0.98 },
         html2canvas:  { scale: 2, useCORS: true },
         jsPDF:        { unit: 'mm', format: 'letter', orientation: 'portrait' }
@@ -366,7 +361,13 @@ window.descargarPDF = async function(id) {
     elemento.style.display = 'block';
     
     try {
-        await html2pdf().set(opciones).from(elemento).save();
+        // En lugar de descargar (.save()), generamos el PDF y lo abrimos en una nueva pestaña
+        const pdf = await html2pdf().set(opciones).from(elemento).toPdf().get('pdf');
+        const blobUrl = pdf.output('bloburl');
+        
+        // Abrir en nueva pestaña para imprimir
+        window.open(blobUrl, '_blank');
+        
     } catch (error) {
         showAlert('Error', 'No se pudo generar el PDF: ' + error.message, 'danger');
     } finally {
