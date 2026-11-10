@@ -133,7 +133,7 @@
                             <label class="small">Cantidad:</label>
                             <input type="number" id="tx-cantidad" class="form-control form-control-sm" value="1" step="0.01" min="0.01">
                         </div>
-                        <div class="col-md-2">
+                        <div class="col-md-2" id="col-form-precio">
                             <label class="small">Precio Unit. ($):</label>
                             <input type="number" id="tx-precio" class="form-control form-control-sm" step="0.01" min="0">
                         </div>
@@ -144,12 +144,20 @@
 
                     <table class="table table-sm table-bordered" id="tabla-tx-items">
                         <thead class="table-light">
-                            <tr><th>Producto</th><th>Medida</th><th>Cantidad</th><th>Precio Unit.</th><th>Subtotal</th><th>Acción</th></tr>
+                            <tr>
+                                <th>Producto</th>
+                                <th>Medida</th>
+                                <th>Cantidad</th>
+                                <th class="col-dinero">Precio Unit.</th>
+                                <th class="col-dinero">Subtotal</th>
+                                <th>Acción</th>
+                            </tr>
                         </thead>
                         <tbody></tbody>
                     </table>
 
-                    <div class="row mt-4">
+                    <!-- SECCIÓN ENVÍO Y TOTALES -->
+                    <div class="row mt-4" id="section-envio-totales">
                         <div class="col-md-6">
                             <div class="form-check form-switch mb-2">
                                 <input class="form-check-input" type="checkbox" id="tx-check-envio" onchange="toggleEnvio()">
@@ -158,10 +166,6 @@
                             <div id="div-envio" style="display: none;">
                                 <label class="small">Monto del Envío ($):</label>
                                 <input type="number" id="tx-monto-envio" class="form-control form-control-sm" value="0" step="0.01" oninput="calcularTotalesTransaccion()">
-                            </div>
-                            <div class="mt-3">
-                                <label class="small fw-bold">Comentario:</label>
-                                <textarea id="tx-comentario" class="form-control form-control-sm" rows="2"></textarea>
                             </div>
                         </div>
                         <div class="col-md-6">
@@ -176,57 +180,69 @@
                         </div>
                     </div>
 
-                    <h6 class="text-primary border-bottom pb-2 mt-4">Formas de Pago</h6>
-                    <div class="row align-items-end mb-3 bg-light p-2 rounded">
-                        <div class="col-md-3">
-                            <label class="small">Método:</label>
-                            <select id="pago-metodo" class="form-select form-select-sm" onchange="toggleFechaAbono()">
-                                <option value="Efectivo">Efectivo</option>
-                                <option value="Cheque">Cheque</option>
-                                <option value="Transferencia">Transferencia</option>
-                                <option value="Credito 30D">Crédito 30D</option>
-                                <option value="Credito 15D">Crédito 15D</option>
-                            </select>
-                        </div>
-                        <div class="col-md-2">
-                            <label class="small">Monto:</label>
-                            <input type="number" id="pago-monto" class="form-control form-control-sm" step="0.01" min="0">
-                        </div>
-                        <div class="col-md-3" id="div-fecha-abono" style="display:none;">
-                            <label class="small">Fecha Abono:</label>
-                            <input type="date" id="pago-fecha-abono" class="form-control form-control-sm">
-                        </div>
-                        <div class="col-md-2">
-                            <button onclick="agregarPago()" class="btn btn-sm btn-outline-success w-100">+ Pago</button>
-                        </div>
+                    <!-- COMENTARIO (SIEMPRE VISIBLE) -->
+                    <div class="mt-3">
+                        <label class="small fw-bold">Comentario / Nota:</label>
+                        <textarea id="tx-comentario" class="form-control form-control-sm" rows="2"></textarea>
                     </div>
 
-                    <table class="table table-sm table-bordered" id="tabla-pagos">
-                        <thead class="table-light">
-                            <tr><th>Método</th><th>Monto</th><th>Fecha Abono</th><th>Acción</th></tr>
-                        </thead>
-                        <tbody></tbody>
-                        <tfoot>
-                            <tr class="table-warning">
-                                <td colspan="1" class="fw-bold">Total Pagado:</td>
-                                <td colspan="3" class="fw-bold" id="lbl-total-pagos">$0.00</td>
-                            </tr>
-                        </tfoot>
-                    </table>
-
-                    <h6 class="text-primary border-bottom pb-2 mt-4">Estado de Entrega</h6>
-                    <div class="row mb-3">
-                        <div class="col-md-6">
-                            <select id="tx-estado-entrega" class="form-select form-select-sm" onchange="toggleFechaPiloto()">
-                                <option value="Pendiente de retiro">Pendiente de retiro</option>
-                                <option value="Pendiente de enviar">Pendiente de enviar</option>
-                                <option value="Entregado en tienda">Entregado en tienda</option>
-                                <option value="Entregado por Paquetería/Fletes">Entregado por Paquetería/Fletes</option>
-                                <option value="Entregado por Piloto">Entregado por Piloto</option>
-                            </select>
+                    <!-- SECCIÓN PAGOS -->
+                    <div id="section-pagos">
+                        <h6 class="text-primary border-bottom pb-2 mt-4">Formas de Pago</h6>
+                        <div class="row align-items-end mb-3 bg-light p-2 rounded">
+                            <div class="col-md-3">
+                                <label class="small">Método:</label>
+                                <select id="pago-metodo" class="form-select form-select-sm" onchange="toggleFechaAbono()">
+                                    <option value="Efectivo">Efectivo</option>
+                                    <option value="Cheque">Cheque</option>
+                                    <option value="Transferencia">Transferencia</option>
+                                    <option value="Credito 30D">Crédito 30D</option>
+                                    <option value="Credito 15D">Crédito 15D</option>
+                                </select>
+                            </div>
+                            <div class="col-md-2">
+                                <label class="small">Monto:</label>
+                                <input type="number" id="pago-monto" class="form-control form-control-sm" step="0.01" min="0">
+                            </div>
+                            <div class="col-md-3" id="div-fecha-abono" style="display:none;">
+                                <label class="small">Fecha Abono:</label>
+                                <input type="date" id="pago-fecha-abono" class="form-control form-control-sm">
+                            </div>
+                            <div class="col-md-2">
+                                <button onclick="agregarPago()" class="btn btn-sm btn-outline-success w-100">+ Pago</button>
+                            </div>
                         </div>
-                        <div class="col-md-6" id="div-fecha-entrega" style="display:none;">
-                            <input type="date" id="tx-fecha-entrega" class="form-control form-control-sm">
+
+                        <table class="table table-sm table-bordered" id="tabla-pagos">
+                            <thead class="table-light">
+                                <tr><th>Método</th><th>Monto</th><th>Fecha Abono</th><th>Acción</th></tr>
+                            </thead>
+                            <tbody></tbody>
+                            <tfoot>
+                                <tr class="table-warning">
+                                    <td colspan="1" class="fw-bold">Total Pagado:</td>
+                                    <td colspan="3" class="fw-bold" id="lbl-total-pagos">$0.00</td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+
+                    <!-- SECCIÓN ESTADO DE ENTREGA -->
+                    <div id="section-entrega">
+                        <h6 class="text-primary border-bottom pb-2 mt-4">Estado de Entrega</h6>
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <select id="tx-estado-entrega" class="form-select form-select-sm" onchange="toggleFechaPiloto()">
+                                    <option value="Pendiente de retiro">Pendiente de retiro</option>
+                                    <option value="Pendiente de enviar">Pendiente de enviar</option>
+                                    <option value="Entregado en tienda">Entregado en tienda</option>
+                                    <option value="Entregado por Paquetería/Fletes">Entregado por Paquetería/Fletes</option>
+                                    <option value="Entregado por Piloto">Entregado por Piloto</option>
+                                </select>
+                            </div>
+                            <div class="col-md-6" id="div-fecha-entrega" style="display:none;">
+                                <input type="date" id="tx-fecha-entrega" class="form-control form-control-sm">
+                            </div>
                         </div>
                     </div>
                 </div>
