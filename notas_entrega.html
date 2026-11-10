@@ -8,16 +8,16 @@
     <link rel="stylesheet" href="css/styles.css">
     <link rel="stylesheet" href="css/inventario.css">
     
-    <!-- ESTILOS EXACTOS PARA EL PDF (Igual al formato que enviaste) -->
+    <!-- ESTILOS EXACTOS PARA EL PDF (Con la gama de colores roja) -->
     <style>
         #pdf-container {
             display: none; 
             background: white;
             color: #333;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; /* O la que uses en tu PDF */
-            padding: 40px;
-            font-size: 13px;
-            line-height: 1.5;
+            font-family: Arial, sans-serif;
+            padding: 30px;
+            font-size: 12px;
+            line-height: 1.4;
             width: 215mm; /* Ancho Carta */
             min-height: 279mm;
             box-sizing: border-box;
@@ -28,56 +28,91 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
-            border-bottom: 3px solid #2c3e50;
-            padding-bottom: 10px;
+            border-bottom: 2px solid #e30613; /* Línea roja */
+            padding-bottom: 15px;
             margin-bottom: 20px;
         }
-        .pdf-header img { height: 70px; }
-        .pdf-header h2 { color: #2c3e50; margin: 0; font-size: 24px; font-weight: bold; }
+        .pdf-logo img { 
+            height: 85px; 
+            object-fit: contain;
+        }
+        .pdf-header-text {
+            text-align: right;
+        }
+        .pdf-header-text h2 {
+            margin: 0;
+            font-size: 24px;
+            font-weight: 500;
+            color: #000;
+            letter-spacing: 1px;
+        }
+        .pdf-header-text h3 {
+            margin: 5px 0;
+            font-size: 15px;
+            font-weight: bold;
+            color: #000;
+        }
+        .pdf-header-text p {
+            margin: 0;
+            font-size: 11px;
+            color: #333;
+            line-height: 1.3;
+        }
 
         /* Info del Cliente y Nota */
         .pdf-info-container {
             display: flex;
             justify-content: space-between;
             margin-bottom: 20px;
-            background: #f8f9fa;
+            background: #fcfcfc;
             padding: 15px;
-            border-radius: 5px;
-            border-left: 4px solid #3498db;
+            border-radius: 4px;
+            border-left: 4px solid #e30613; /* Borde rojo */
+            border-top: 1px solid #eee;
+            border-right: 1px solid #eee;
+            border-bottom: 1px solid #eee;
         }
         .pdf-info-block { width: 48%; }
         .pdf-info-block div { margin-bottom: 5px; }
-        .pdf-label { font-weight: bold; color: #555; }
+        .pdf-label { font-weight: bold; color: #000; }
 
         /* Título central */
         .pdf-title {
             text-align: center;
             font-weight: bold;
-            background: #2c3e50;
+            background: #e30613; /* Fondo rojo */
             color: white;
             padding: 8px;
             margin-bottom: 20px;
             text-transform: uppercase;
             letter-spacing: 1px;
+            font-size: 14px;
         }
 
         /* Tabla */
         .pdf-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
-        .pdf-table th { background: #3498db; color: white; padding: 10px; text-align: left; border: 1px solid #2980b9; }
-        .pdf-table td { padding: 8px 10px; border: 1px solid #ddd; }
-        .pdf-table tr:nth-child(even) { background-color: #f2f2f2; }
-        .pdf-table .col-num { text-align: center; width: 10%; }
+        .pdf-table th { 
+            background: #e30613; /* Cabecera de tabla roja */
+            color: white; 
+            padding: 10px; 
+            text-align: left; 
+            border: 1px solid #c0000f; 
+            font-size: 12px;
+        }
+        .pdf-table td { padding: 8px 10px; border: 1px solid #ddd; font-size: 12px; }
+        .pdf-table tr:nth-child(even) { background-color: #f9f9f9; }
+        .pdf-table .col-num { text-align: center; width: 8%; }
         .pdf-table .col-cant { text-align: center; width: 20%; }
-        .pdf-total-row { background: #ecf0f1; font-weight: bold; text-align: right; }
+        .pdf-total-row { background: #f2f2f2; font-weight: bold; text-align: right; color: #e30613; }
 
         /* Descripción extra */
-        .pdf-footer-text { margin-bottom: 40px; text-align: justify; font-style: italic; color: #555; }
+        .pdf-footer-text { margin-bottom: 40px; text-align: justify; font-style: italic; color: #555; font-size: 11px; }
 
         /* Firmas */
         .pdf-signatures { display: flex; justify-content: space-around; margin-top: 60px; }
         .pdf-sig-block { text-align: center; width: 40%; }
-        .pdf-sig-line { border-top: 1px solid black; margin-top: 40px; margin-bottom: 5px; }
-        .pdf-sig-label { font-weight: bold; font-size: 12px; }
+        .pdf-sig-line { border-top: 1px solid #000; margin-top: 40px; margin-bottom: 5px; }
+        .pdf-sig-label { font-weight: bold; font-size: 11px; color: #333; }
     </style>
 </head>
 <body>
@@ -109,7 +144,7 @@
         </main>
     </div>
 
-    <!-- MODAL CREAR/EDITAR NOTA -->
+    <!-- MODAL CREAR/EDITAR NOTA (Igual que antes) -->
     <div class="modal fade" id="modal-nota" tabindex="-1" aria-hidden="true" data-bs-backdrop="static">
         <div class="modal-dialog modal-lg">
             <div class="modal-content">
@@ -118,7 +153,6 @@
                     <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
-                    <!-- CABECERA -->
                     <div class="row bg-light p-3 rounded mb-3">
                         <div class="col-md-4">
                             <label class="small fw-bold">N° Nota:</label>
@@ -134,7 +168,6 @@
                         </div>
                     </div>
 
-                    <!-- DATOS CLIENTE -->
                     <h6 class="text-primary border-bottom pb-2">Datos del Cliente</h6>
                     <div class="row mb-3">
                         <div class="col-md-4">
@@ -151,13 +184,11 @@
                         </div>
                     </div>
 
-                    <!-- MOTIVO -->
                     <div class="mb-3">
                         <label class="small fw-bold">Motivo / Título de la Nota:</label>
                         <input type="text" id="ne-titulo" class="form-control form-control-sm" placeholder="Ej. CAMBIO DE PRODUCTO">
                     </div>
 
-                    <!-- PRODUCTOS -->
                     <h6 class="text-primary border-bottom pb-2 mt-4">Productos</h6>
                     <div class="row align-items-end mb-2 bg-light p-2 rounded">
                         <div class="col-md-8">
@@ -187,7 +218,6 @@
                         </tfoot>
                     </table>
 
-                    <!-- DESCRIPCIÓN EXTRA -->
                     <div class="mt-3">
                         <label class="small fw-bold">Texto Adicional / Observaciones:</label>
                         <textarea id="ne-descripcion-extra" class="form-control form-control-sm" rows="2" placeholder="Ej. Se recibe de parte del cliente..."></textarea>
@@ -218,10 +248,21 @@
     <!-- CONTENEDOR OCULTO PARA GENERAR EL PDF      -->
     <!-- ========================================== -->
     <div id="pdf-container">
-        <!-- Cabecera con Logo -->
+        <!-- Cabecera con Logo y Textos alineados a la derecha -->
         <div class="pdf-header">
-            <img src="https://i.postimg.cc/kg34hr8S/image-removebg-preview.png" alt="Logo">
-            <h2>NOTA DE ENTREGA</h2>
+            <div class="pdf-logo">
+                <!-- REEMPLAZA ESTA URL POR LA DE TU LOGO REDONDO -->
+                <img src="https://i.postimg.cc/kg34hr8S/image-removebg-preview.png" alt="Logo Arquipor">
+            </div>
+            <div class="pdf-header-text">
+                <h2>NOTA DE ENTREGA</h2>
+                <h3>ARQUIPOR EL SALVADOR</h3>
+                <p>Urb. San Miguelito II, carretera bypass, Pol. O. Lote #13</p>
+                <p>76133762</p>
+                <p>grupooro.sv@gmail.com</p>
+                <p>arquipor.com.gt</p>
+                <p>NRC : 341044-6</p>
+            </div>
         </div>
         
         <!-- Info Cliente y Nota -->
