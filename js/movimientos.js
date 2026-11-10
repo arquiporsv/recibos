@@ -11,13 +11,9 @@ let txPagosTemp = [];
 let txDtesTemp = []; 
 let transaccionEditandoId = null; 
 
-// UTILIDAD: Formatear fecha para el input date (YYYY-MM-DD)
 function getFormattedDate(date) {
     const pad = (num) => String(num).padStart(2, '0');
-    const yyyy = date.getFullYear();
-    const mm = pad(date.getMonth() + 1);
-    const dd = pad(date.getDate());
-    return `${yyyy}-${mm}-${dd}`;
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
 checkAuth(async (user) => {
@@ -26,9 +22,7 @@ checkAuth(async (user) => {
     await cargarTransacciones();
 });
 
-window.logout = function() { 
-    signOut(auth).then(() => window.location.href = 'index.html'); 
-};
+window.logout = function() { signOut(auth).then(() => window.location.href = 'index.html'); };
 
 // ==========================================
 // CARGA DE DATOS
@@ -37,9 +31,7 @@ async function cargarProductos() {
     const q = query(collection(db, "inventario"), where("userId", "==", currentUser.uid));
     const snap = await getDocs(q);
     productosCache = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-    
-    const datalist = document.getElementById('datalist-productos');
-    datalist.innerHTML = productosCache.map(p => `<option value="${p.nombre}">`).join('');
+    document.getElementById('datalist-productos').innerHTML = productosCache.map(p => `<option value="${p.nombre}">`).join('');
 }
 
 async function cargarTransacciones() {
@@ -51,11 +43,8 @@ async function cargarTransacciones() {
         const snapTx = await getDocs(qTx);
         let nuevasTx = snapTx.docs.map(doc => {
             let data = doc.data();
-            if (!data.dtes && (data.codigoGeneracion || data.numeroDTE)) {
-                data.dtes = [{ codigo: data.codigoGeneracion, numero: data.numeroDTE }];
-            } else if (!data.dtes) {
-                data.dtes = [];
-            }
+            if (!data.dtes && (data.codigoGeneracion || data.numeroDTE)) data.dtes = [{ codigo: data.codigoGeneracion, numero: data.numeroDTE }];
+            else if (!data.dtes) data.dtes = [];
             return { id: doc.id, isNew: true, ...data };
         });
 
@@ -66,7 +55,6 @@ async function cargarTransacciones() {
         const gruposAntiguos = {};
         movimientosAntiguos.forEach(mov => {
             if (mov.transaccionId) return; 
-
             const key = mov.loteId || new Date(mov.fecha).toISOString();
             if (!gruposAntiguos[key]) {
                 gruposAntiguos[key] = {
@@ -77,10 +65,8 @@ async function cargarTransacciones() {
                     enProduccion: false, montoEnvio: 0, total: 0, pagos: [], items: [], docIds: []
                 };
             }
-
             const prod = productosCache.find(p => p.id === mov.productoId);
             let varIndex = prod ? prod.variantes.findIndex(v => v.medida === mov.medida) : -1;
-
             gruposAntiguos[key].items.push({
                 docId: mov.id, prodId: mov.productoId, varIndex,
                 nombre: mov.productoNombre, medida: mov.medida, cantidad: mov.cantidad, precio: mov.precioUnitario || 0, subtotal: mov.subtotal || 0
@@ -110,19 +96,11 @@ window.filtrarMovimientos = function() {
     const filtrados = transaccionesCache.filter(tx => {
         const prodsStr = tx.items ? tx.items.map(i => i.nombre.toLowerCase()).join(' ') : '';
         const dtesStr = tx.dtes ? tx.dtes.map(d => `${d.codigo} ${d.numero}`).join(' ').toLowerCase() : '';
-        
-        const coincideTexto = prodsStr.includes(buscador) || 
-                              dtesStr.includes(buscador) ||
-                              (tx.comentario && tx.comentario.toLowerCase().includes(buscador));
-        
+        const coincideTexto = prodsStr.includes(buscador) || dtesStr.includes(buscador) || (tx.comentario && tx.comentario.toLowerCase().includes(buscador));
         const coincideMotivo = motivoFiltro === "" || (tx.motivo && tx.motivo.includes(motivoFiltro));
         const coincideEstado = estadoFiltro === "" || tx.estadoEntrega === estadoFiltro;
-
         let coincideFecha = true;
-        if (fechaFiltro) {
-            const fechaTx = new Date(tx.fecha).toISOString().split('T')[0];
-            coincideFecha = fechaTx >= fechaFiltro;
-        }
+        if (fechaFiltro) coincideFecha = new Date(tx.fecha).toISOString().split('T')[0] >= fechaFiltro;
         return coincideTexto && coincideMotivo && coincideEstado && coincideFecha;
     });
 
@@ -144,14 +122,12 @@ window.filtrarMovimientos = function() {
                 const cant = Number.isInteger(item.cantidad) ? item.cantidad : item.cantidad.toFixed(2);
                 const subtotal = item.subtotal || (item.precio * item.cantidad) || 0;
                 sumaTotal += subtotal;
-                filasHTML += `<tr><td>${item.nombre}</td><td>${item.medida}</td><td>${cant}</td><td>${item.precio ? '$' + item.precio.toFixed(2) : '-'}</td><td>${subtotal ? '$' + subtotal.toFixed(2) : '-'}</td></tr>`;
+                filasHTML += `<tr><td>${item.nombre}</td><td>${item.medida}</td><td>${cant}</td><td class="col-dinero">${item.precio ? '$' + item.precio.toFixed(2) : '-'}</td><td class="col-dinero">${subtotal ? '$' + subtotal.toFixed(2) : '-'}</td></tr>`;
             });
         }
         const totalMostrar = tx.total || sumaTotal;
 
-        let pagosHTML = tx.pagos && tx.pagos.length > 0 
-            ? tx.pagos.map(p => `<span class="badge bg-info text-dark me-1">${p.metodo}: $${p.monto.toFixed(2)}</span>`).join('')
-            : '<span class="text-muted small">No registrados</span>';
+        let pagosHTML = tx.pagos && tx.pagos.length > 0 ? tx.pagos.map(p => `<span class="badge bg-info text-dark me-1">${p.metodo}: $${p.monto.toFixed(2)}</span>`).join('') : '<span class="text-muted small">No registrados</span>';
 
         let estadoBadge = '';
         if (tx.estadoEntrega === 'Pendiente de retiro') estadoBadge = '<span class="badge bg-warning text-dark me-1">Pendiente de Retiro</span>';
@@ -160,20 +136,10 @@ window.filtrarMovimientos = function() {
 
         let produccionBadge = tx.enProduccion ? `<span class="badge bg-danger me-1">EN PRODUCCIÓN</span>` : '';
 
-        const btnProduccion = tx.isNew ? `
-            <button onclick="toggleProduccionRapido('${tx.id}', ${!!tx.enProduccion})" class="btn btn-sm ${tx.enProduccion ? 'btn-outline-danger' : 'btn-outline-secondary'} me-2" title="Cambiar estado de producción">
-                ${tx.enProduccion ? 'Quitar Producción' : 'Marcar Producción'}
-            </button>
-        ` : '';
+        const btnProduccion = tx.isNew ? `<button onclick="toggleProduccionRapido('${tx.id}', ${!!tx.enProduccion})" class="btn btn-sm ${tx.enProduccion ? 'btn-outline-danger' : 'btn-outline-secondary'} me-2">${tx.enProduccion ? 'Quitar Producción' : 'Marcar Producción'}</button>` : '';
 
-        let dtesHeader = '';
-        if (tx.dtes && tx.dtes.length > 0) {
-            dtesHeader = tx.dtes.map(d => `<span class="badge bg-secondary me-1">${d.codigo ? d.codigo.substring(0,8)+'...' : ''} ${d.numero}</span>`).join('');
-        } else {
-            dtesHeader = '<span class="text-muted small">Sin DTE</span>';
-        }
+        let dtesHeader = tx.dtes && tx.dtes.length > 0 ? tx.dtes.map(d => `<span class="badge bg-secondary me-1">${d.codigo ? d.codigo.substring(0,8)+'...' : ''} ${d.numero}</span>`).join('') : '<span class="text-muted small">Sin DTE</span>';
 
-        // BOTONES DE ACCIÓN (AQUÍ SE AGREGA EL BOTÓN DE NOTA)
         const botonesAccion = `
             <div class="mt-2 text-end border-top pt-2">
                 ${btnProduccion}
@@ -194,7 +160,7 @@ window.filtrarMovimientos = function() {
                                 ${estadoBadge}
                                 <div class="mt-1 small text-muted">${dtesHeader}</div>
                             </div>
-                            <span class="text-muted small text-end">${fechaStr} <br> <b>Total: $${totalMostrar.toFixed(2)}</b></span>
+                            <span class="text-muted small text-end">${fechaStr} ${tx.tipo === 'salida' ? `<br> <b>Total: $${totalMostrar.toFixed(2)}</b>` : ''}</span>
                         </div>
                     </button>
                 </h2>
@@ -210,8 +176,10 @@ window.filtrarMovimientos = function() {
                             <div class="col-md-6 p-3">
                                 <h6 class="text-primary fw-bold mb-2">Pagos y Detalles</h6>
                                 <ul class="list-group list-group-flush mb-2">
-                                    <li class="list-group-item py-1 px-0 border-0 small"><b>Pagos:</b> ${pagosHTML}</li>
-                                    <li class="list-group-item py-1 px-0 border-0 small"><b>Envío cobrado:</b> $${(tx.montoEnvio || 0).toFixed(2)}</li>
+                                    ${tx.tipo === 'salida' ? `
+                                        <li class="list-group-item py-1 px-0 border-0 small"><b>Pagos:</b> ${pagosHTML}</li>
+                                        <li class="list-group-item py-1 px-0 border-0 small"><b>Envío cobrado:</b> $${(tx.montoEnvio || 0).toFixed(2)}</li>
+                                    ` : ''}
                                     <li class="list-group-item py-1 px-0 border-0 small"><b>Estado:</b> ${tx.estadoEntrega || 'N/A'}</li>
                                     ${tx.fechaEntrega ? `<li class="list-group-item py-1 px-0 border-0 small"><b>Fecha Entrega:</b> ${tx.fechaEntrega}</li>` : ''}
                                     <li class="list-group-item py-1 px-0 border-0 small"><b>Comentario:</b> ${tx.comentario || 'Sin comentarios'}</li>
@@ -220,7 +188,7 @@ window.filtrarMovimientos = function() {
                         </div>
                         
                         <table class="table table-sm mb-0">
-                            <thead class="table-light"><tr><th>Producto</th><th>Medida</th><th>Cant.</th><th>Precio</th><th>Subtotal</th></tr></thead>
+                            <thead class="table-light"><tr><th>Producto</th><th>Medida</th><th>Cant.</th><th class="col-dinero">Precio</th><th class="col-dinero">Subtotal</th></tr></thead>
                             <tbody>${filasHTML}</tbody>
                         </table>
                         ${botonesAccion}
@@ -243,30 +211,22 @@ window.toggleProduccionRapido = async function(id, estadoActual) {
     try {
         await updateDoc(doc(db, "transacciones", id), { enProduccion: !estadoActual });
         await cargarTransacciones();
-    } catch (error) {
-        showAlert('Error', error.message, 'danger');
-    }
+    } catch (error) { showAlert('Error', error.message, 'danger'); }
 };
 
-// ==========================================
-// REDIRECCIÓN A NOTA DE ENTREGA
-// ==========================================
 window.irANotaEntrega = function(txId) {
     window.location.href = `notas_entrega.html?txId=${txId}`;
 };
 
 // ==========================================
-// MODAL: CREAR / EDITAR TRANSACCIÓN
+// MODAL: CREAR / EDITAR
 // ==========================================
 window.abrirModalTransaccion = function() {
     transaccionEditandoId = null;
-    txItemsTemp = [];
-    txPagosTemp = [];
-    txDtesTemp = [];
+    txItemsTemp = []; txPagosTemp = []; txDtesTemp = [];
     
     document.getElementById('modal-tx-titulo').textContent = 'Registrar Nueva Transacción';
     document.getElementById('btn-guardar-tx').textContent = 'Guardar Transacción';
-    
     document.getElementById('tx-prod-search').value = '';
     document.getElementById('tx-variante').innerHTML = '';
     document.getElementById('tx-comentario').value = '';
@@ -277,7 +237,6 @@ window.abrirModalTransaccion = function() {
     document.getElementById('div-fecha-entrega').style.display = 'none';
     document.getElementById('tx-tipo').value = 'salida';
     document.getElementById('tx-check-produccion').checked = false;
-    
     document.getElementById('tx-fecha-creacion').value = getFormattedDate(new Date());
 
     document.getElementById('temp-dte-codigo').value = '';
@@ -312,7 +271,8 @@ window.editarTransaccion = function(id) {
     document.getElementById('btn-guardar-tx').textContent = tx.isNew ? 'Actualizar Transacción' : 'Guardar y Convertir';
 
     document.getElementById('tx-tipo').value = tx.tipo;
-    actualizarMotivos();
+    actualizarMotivos(); // Esto llamará a toggleVista y mostrará/ocultará todo
+    
     document.getElementById('tx-motivo').value = tx.motivo.includes('Histórico') ? (tx.tipo === 'salida' ? 'Venta' : 'Pedido especial') : tx.motivo;
     document.getElementById('tx-comentario').value = tx.comentario || '';
     document.getElementById('tx-check-produccion').checked = tx.enProduccion || false;
@@ -336,9 +296,7 @@ window.editarTransaccion = function(id) {
     new bootstrap.Modal(document.getElementById('modal-transaccion')).show();
 };
 
-window.cancelarTransaccion = function() {
-    bootstrap.Modal.getInstance(document.getElementById('modal-transaccion')).hide();
-};
+window.cancelarTransaccion = function() { bootstrap.Modal.getInstance(document.getElementById('modal-transaccion')).hide(); };
 
 // ==========================================
 // LÓGICA DE DTEs
@@ -346,9 +304,7 @@ window.cancelarTransaccion = function() {
 window.agregarDTEAlLote = function() {
     const codigo = document.getElementById('temp-dte-codigo').value.trim();
     const numero = document.getElementById('temp-dte-numero').value.trim();
-    
     if (!codigo && !numero) return showAlert('Aviso', 'Ingresa al menos un código o número de DTE.', 'warning');
-
     txDtesTemp.push({ codigo, numero });
     document.getElementById('temp-dte-codigo').value = '';
     document.getElementById('temp-dte-numero').value = '';
@@ -359,27 +315,44 @@ function renderizarDtesTemp() {
     const lista = document.getElementById('lista-dtes-temp');
     lista.innerHTML = '';
     txDtesTemp.forEach((dte, index) => {
-        lista.innerHTML += `
-            <li class="list-group-item d-flex justify-content-between align-items-center py-1">
-                <span><b>Código:</b> ${dte.codigo || '-'} | <b>Número:</b> ${dte.numero || '-'}</span>
-                <button class="btn btn-sm btn-outline-danger border-0" onclick="eliminarDTETemp(${index})">X</button>
-            </li>
-        `;
+        lista.innerHTML += `<li class="list-group-item d-flex justify-content-between align-items-center py-1"><span><b>Código:</b> ${dte.codigo || '-'} | <b>Número:</b> ${dte.numero || '-'}</span><button class="btn btn-sm btn-outline-danger border-0" onclick="eliminarDTETemp(${index})">X</button></li>`;
     });
 }
+window.eliminarDTETemp = function(index) { txDtesTemp.splice(index, 1); renderizarDtesTemp(); };
 
-window.eliminarDTETemp = function(index) {
-    txDtesTemp.splice(index, 1);
-    renderizarDtesTemp();
-};
-
+// ==========================================
+// LÓGICA DE TIPO Y VISTA (NUEVO)
+// ==========================================
 window.actualizarMotivos = function() {
     const tipo = document.getElementById('tx-tipo').value;
     const selectMotivo = document.getElementById('tx-motivo');
     selectMotivo.innerHTML = tipo === 'salida' 
         ? `<option value="Venta">Venta</option><option value="Dañadas">Dañadas</option><option value="Muestras">Muestras</option>`
         : `<option value="Pedido especial">Pedido especial</option><option value="Exportación">Exportación</option><option value="Devolución">Devolución</option>`;
+    
+    toggleVistaTipo(tipo);
 };
+
+function toggleVistaTipo(tipo) {
+    const isEntrada = tipo === 'entrada';
+    
+    // Ocultar/Mostrar inputs y secciones
+    document.getElementById('col-form-precio').style.display = isEntrada ? 'none' : 'block';
+    document.getElementById('section-envio-totales').style.display = isEntrada ? 'none' : 'flex';
+    document.getElementById('section-pagos').style.display = isEntrada ? 'none' : 'block';
+    document.getElementById('section-entrega').style.display = isEntrada ? 'none' : 'block';
+
+    // Ocultar/Mostrar columnas de la tabla temporal
+    document.querySelectorAll('.col-dinero').forEach(el => {
+        el.style.display = isEntrada ? 'none' : 'table-cell';
+    });
+    
+    // Si es entrada, forzamos todos los precios a 0 para evitar errores
+    if (isEntrada) {
+        txItemsTemp.forEach(item => item.precio = 0);
+        renderizarItemsTx();
+    }
+}
 
 // ==========================================
 // LÓGICA DE PRODUCTOS Y PAGOS
@@ -400,10 +373,16 @@ window.agregarItemTransaccion = function() {
     const nombre = document.getElementById('tx-prod-search').value;
     const varIndex = document.getElementById('tx-variante').value;
     const cantidad = parseFloat(document.getElementById('tx-cantidad').value);
-    const precio = parseFloat(document.getElementById('tx-precio').value);
+    const tipo = document.getElementById('tx-tipo').value;
+    
+    let precio = 0;
+    if (tipo === 'salida') {
+        precio = parseFloat(document.getElementById('tx-precio').value);
+        if (isNaN(precio) || precio < 0) return showAlert('Aviso', 'Ingresa un precio válido.', 'warning');
+    }
 
-    if (!nombre || varIndex === "" || isNaN(cantidad) || cantidad <= 0 || isNaN(precio) || precio < 0) {
-        return showAlert('Aviso', 'Complete producto, variante, cantidad y precio válido.', 'warning');
+    if (!nombre || varIndex === "" || isNaN(cantidad) || cantidad <= 0) {
+        return showAlert('Aviso', 'Complete producto, variante y cantidad válida.', 'warning');
     }
 
     const prod = productosCache.find(p => p.nombre === nombre);
@@ -415,7 +394,7 @@ window.agregarItemTransaccion = function() {
     document.getElementById('tx-prod-search').value = '';
     document.getElementById('tx-variante').innerHTML = '';
     document.getElementById('tx-cantidad').value = '1';
-    document.getElementById('tx-precio').value = '';
+    if (tipo === 'salida') document.getElementById('tx-precio').value = '';
 };
 
 function renderizarItemsTx() {
@@ -425,7 +404,9 @@ function renderizarItemsTx() {
         const subtotal = item.cantidad * item.precio;
         const cant = Number.isInteger(item.cantidad) ? item.cantidad : item.cantidad.toFixed(2);
         tbody.innerHTML += `
-            <tr><td>${item.nombre}</td><td>${item.medida}</td><td>${cant}</td><td>$${item.precio.toFixed(2)}</td><td>$${subtotal.toFixed(2)}</td>
+            <tr><td>${item.nombre}</td><td>${item.medida}</td><td>${cant}</td>
+            <td class="col-dinero">${item.precio ? '$' + item.precio.toFixed(2) : '-'}</td>
+            <td class="col-dinero">${subtotal ? '$' + subtotal.toFixed(2) : '-'}</td>
             <td><button class="btn btn-sm btn-outline-danger" onclick="eliminarItemTx(${index})">X</button></td></tr>`;
     });
     calcularTotalesTransaccion();
@@ -461,10 +442,8 @@ window.agregarPago = function() {
     const metodo = document.getElementById('pago-metodo').value;
     const monto = parseFloat(document.getElementById('pago-monto').value);
     const fechaAbono = document.getElementById('pago-fecha-abono').value;
-
     if (isNaN(monto) || monto <= 0) return showAlert('Aviso', 'Monto inválido.', 'warning');
     if ((metodo === 'Efectivo' || metodo === 'Cheque') && !fechaAbono) return showAlert('Aviso', 'Falta fecha de abono.', 'warning');
-
     txPagosTemp.push({ metodo, monto, fechaAbono });
     renderizarPagosTx();
     document.getElementById('pago-monto').value = '';
@@ -486,24 +465,29 @@ window.toggleFechaPiloto = function() {
 };
 
 // ==========================================
-// GUARDAR TRANSACCIÓN (NUEVA O EDITADA)
+// GUARDAR TRANSACCIÓN
 // ==========================================
 window.guardarTransaccion = async function() {
     if (txItemsTemp.length === 0) return showAlert('Aviso', 'No has agregado productos.', 'warning');
 
-    const subtotal = txItemsTemp.reduce((sum, item) => sum + (item.cantidad * item.precio), 0);
-    const envio = parseFloat(document.getElementById('tx-monto-envio').value) || 0;
-    const total = subtotal + envio;
-    const totalPagado = txPagosTemp.reduce((sum, p) => sum + p.monto, 0);
+    const tipo = document.getElementById('tx-tipo').value;
+    
+    // Validaciones y cálculos solo si es SALIDA
+    let subtotal = 0, envio = 0, total = 0, totalPagado = 0;
+    
+    if (tipo === 'salida') {
+        subtotal = txItemsTemp.reduce((sum, item) => sum + (item.cantidad * item.precio), 0);
+        envio = parseFloat(document.getElementById('tx-monto-envio').value) || 0;
+        total = subtotal + envio;
+        totalPagado = txPagosTemp.reduce((sum, p) => sum + p.monto, 0);
 
-    if (Math.abs(totalPagado - total) > 0.01) {
-        return showAlert('Aviso', `Pagos ($${totalPagado.toFixed(2)}) no coinciden con Total ($${total.toFixed(2)}).`, 'warning');
+        if (Math.abs(totalPagado - total) > 0.01) {
+            return showAlert('Aviso', `Pagos ($${totalPagado.toFixed(2)}) no coinciden con Total ($${total.toFixed(2)}).`, 'warning');
+        }
     }
 
     const fechaInput = document.getElementById('tx-fecha-creacion').value;
     const fechaFinal = fechaInput ? `${fechaInput}T12:00:00.000Z` : new Date().toISOString();
-
-    const tipo = document.getElementById('tx-tipo').value;
     const loteId = 'TX-' + Date.now();
     
     const btnGuardar = document.getElementById('btn-guardar-tx');
@@ -513,7 +497,6 @@ window.guardarTransaccion = async function() {
     try {
         if (transaccionEditandoId) {
             const oldTx = transaccionesCache.find(t => t.id === transaccionEditandoId);
-            
             for (const item of oldTx.items) {
                 const prod = productosCache.find(p => p.id === item.prodId);
                 if (prod && prod.variantes[item.varIndex]) {
@@ -521,7 +504,6 @@ window.guardarTransaccion = async function() {
                     await updateDoc(doc(db, "inventario", item.prodId), { variantes: prod.variantes });
                 }
             }
-
             const batch = writeBatch(db);
             if (oldTx.isNew) {
                 batch.delete(doc(db, "transacciones", transaccionEditandoId));
@@ -529,9 +511,7 @@ window.guardarTransaccion = async function() {
                 const snapMovs = await getDocs(qMovs);
                 snapMovs.forEach(m => batch.delete(m.ref));
             } else {
-                oldTx.docIds.forEach(docId => {
-                    batch.delete(doc(db, "movimientos_inventario", docId));
-                });
+                oldTx.docIds.forEach(docId => { batch.delete(doc(db, "movimientos_inventario", docId)); });
             }
             await batch.commit();
         }
@@ -540,9 +520,9 @@ window.guardarTransaccion = async function() {
             userId: currentUser.uid, tipo, motivo: document.getElementById('tx-motivo').value,
             dtes: txDtesTemp,
             enProduccion: document.getElementById('tx-check-produccion').checked,
-            subtotal, montoEnvio: envio, total, pagos: txPagosTemp,
-            estadoEntrega: document.getElementById('tx-estado-entrega').value, 
-            fechaEntrega: document.getElementById('tx-fecha-entrega').value,
+            subtotal, montoEnvio: envio, total, pagos: tipo === 'salida' ? txPagosTemp : [],
+            estadoEntrega: tipo === 'salida' ? document.getElementById('tx-estado-entrega').value : 'N/A', 
+            fechaEntrega: tipo === 'salida' ? document.getElementById('tx-fecha-entrega').value : '',
             comentario: document.getElementById('tx-comentario').value.trim(), 
             items: txItemsTemp, loteId, 
             fecha: fechaFinal 
@@ -561,7 +541,7 @@ window.guardarTransaccion = async function() {
                 userId: currentUser.uid, transaccionId: txRef.id,
                 productoId: item.prodId, productoNombre: item.nombre,
                 medida: item.medida, tipo, cantidad: item.cantidad,
-                precioUnitario: item.precio, subtotal: item.cantidad * item.precio,
+                precioUnitario: tipo === 'salida' ? item.precio : 0, subtotal: tipo === 'salida' ? (item.cantidad * item.precio) : 0,
                 loteId, fecha: fechaFinal 
             });
         }
@@ -587,7 +567,6 @@ window.eliminarTransaccion = async function(id) {
 
     try {
         const tx = transaccionesCache.find(t => t.id === id);
-        
         for (const item of tx.items) {
             const prod = productosCache.find(p => p.id === item.prodId);
             if (prod && prod.variantes[item.varIndex]) {
@@ -595,7 +574,6 @@ window.eliminarTransaccion = async function(id) {
                 await updateDoc(doc(db, "inventario", item.prodId), { variantes: prod.variantes });
             }
         }
-
         const batch = writeBatch(db);
         if (tx.isNew) {
             batch.delete(doc(db, "transacciones", id));
@@ -603,16 +581,11 @@ window.eliminarTransaccion = async function(id) {
             const snapMovs = await getDocs(qMovs);
             snapMovs.forEach(m => batch.delete(m.ref));
         } else {
-            tx.docIds.forEach(docId => {
-                batch.delete(doc(db, "movimientos_inventario", docId));
-            });
+            tx.docIds.forEach(docId => { batch.delete(doc(db, "movimientos_inventario", docId)); });
         }
         await batch.commit();
-
         showAlert('Eliminado', 'Transacción eliminada y stock restaurado.', 'success');
         await cargarProductos();
         await cargarTransacciones();
-    } catch (error) {
-        showAlert('Error', error.message, 'danger');
-    }
+    } catch (error) { showAlert('Error', error.message, 'danger'); }
 };
